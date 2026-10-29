@@ -8,10 +8,12 @@ class Player {
 
   boolean left, right, fwd, back;
 
-  Player(int posX, int posY, int posZ) { 
-    this.posX = posX;
-    this.posY = posY;
-    this.posZ = posZ;
+  PVector pos;
+  PVector velocity;
+  float maxSpeed = 6;
+
+  Player(PVector pos) { 
+    this.pos = pos;
   }
 
   void toggleShift() {
@@ -37,8 +39,14 @@ class Player {
 
   void update(float dt) {
     float step = moveSpeed * dt;
-    if (left) { posX -= step; }
-    if (right) { posX += step; }
+    if (left) { 
+      velocity.x -= step; } 
+    else { 
+      if(velocity.x < 0) { 
+        velocity.x += 0.01;
+      }
+    }
+    if (right) { velocity.x += step; }
 
     if (isIso) { // depth movement only exists in 3D mode
       if (fwd) { posZ -= step; }
@@ -56,7 +64,7 @@ class Player {
   }
 
   PVector project() {
-    return worldToScreen(posX, posY, posZ, shiftT);
+    return worldToScreen(velocity.x, velocity.y, velocity.z, shiftT);
   }
 
   void display() {

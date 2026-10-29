@@ -5,7 +5,7 @@ int lastMillis;
 void setup() {
   size(1000, 800);
   noSmooth();
-  player = new Player(0, 0, 0);
+  player = new Player(new PVector(0, 0, 0));
   level = new Level0();
   lastMillis = millis();
 }
