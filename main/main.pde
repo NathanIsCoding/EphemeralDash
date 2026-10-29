@@ -1,12 +1,12 @@
 Player player;
-Level0 level;
+Level level;
 int lastMillis;
 
 void setup() {
   size(1000, 800);
   noSmooth();
-  player = new Player(0, 0, 0);
-  level = new Level0();
+  level = new Level("level0.txt");
+  player = new Player(level.spawn.x, level.spawn.y, level.spawn.z);
   lastMillis = millis();
 }
 
@@ -14,7 +14,7 @@ void draw() {
   float dt = (millis() - lastMillis) / 1000.0;
   lastMillis = millis();
 
-  player.update(dt);
+  player.update(dt, level);
 
   background(20);
   pushMatrix();
@@ -22,11 +22,13 @@ void draw() {
   level.display(player.shiftT);
   player.display();
   popMatrix();
+
+  text(frameRate,25,25);
 }
 
 void keyPressed() {
   player.setKey(key, true);
-  if (key == ' ') player.toggleShift();
+  if (key == ' ') player.toggleShift(level);
 }
 
 void keyReleased() {
