@@ -20,10 +20,18 @@ class Player {
 
   void setKey(char k, boolean down) {
     switch (Character.toLowerCase(k)) {
-      case 'a': left = down; break;
-      case 'd': right = down; break;
-      case 'w': fwd = down; break;
-      case 's': back = down; break;
+      case 'a': 
+        left = down; 
+        break;
+      case 'd': 
+        right = down; 
+        break;
+      case 'w': 
+        fwd = down; 
+        break;
+      case 's': 
+        back = down; 
+        break;
     }
   }
 
@@ -31,9 +39,17 @@ class Player {
     float step = moveSpeed * dt;
     if (left) { posX -= step; }
     if (right) { posX += step; }
+
     if (isIso) { // depth movement only exists in 3D mode
-      if (fwd) { posZ -= step; }  
+      if (fwd) { posZ -= step; }
       if (back) { posZ += step; }
+
+      // Compount movements
+      if(fwd && right) { }
+      if(fwd && left) { }
+
+      if(back && right) { }
+      if(back && left) { }
     }
     float target = isIso ? 1 : 0;
     shiftT += (target - shiftT) * min(1, dt * 15);

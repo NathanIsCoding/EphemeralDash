@@ -13,10 +13,10 @@ class Level0 {
         float x = originX + ix;
         float z = originZ + iz;
 
-        PVector a = worldToScreen(x,     0, z,     t);
-        PVector b = worldToScreen(x + 1, 0, z,     t);
+        PVector a = worldToScreen(x, 0, z, t);
+        PVector b = worldToScreen(x + 1, 0, z, t);
         PVector c = worldToScreen(x + 1, 0, z + 1, t);
-        PVector d = worldToScreen(x,     0, z + 1, t);
+        PVector d = worldToScreen(x, 0, z + 1, t);
 
         if ((ix + iz) % 2 == 0) fill(60, 120, 220);
         else fill(40, 90, 180);
