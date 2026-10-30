@@ -1,4 +1,5 @@
 Player player;
+PVector cam = new PVector();
 Level0 level;
 int lastMillis;
 
@@ -18,7 +19,9 @@ void draw() {
 
   background(20);
   pushMatrix();
-  translate(width / 2, height / 2);  // camera offset goes here later
+  PVector target = player.project();
+  cam.lerp(target, 1 - exp(-dt * 8));   // smoothing; raise 8 for a tighter follow
+  translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
   level.display(player.shiftT);
   player.display();
   popMatrix();
