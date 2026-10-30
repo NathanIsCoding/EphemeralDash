@@ -3,9 +3,10 @@ PVector cam = new PVector();
 Level0 level;
 int lastMillis;
 
+float worldUnits = 40;
+
 void setup() {
   size(1000, 800);
-  noSmooth();
   player = new Player(new PVector(0, 0, 0));
   level = new Level0();
   lastMillis = millis();
@@ -38,11 +39,10 @@ void keyReleased() {
 
 // t: 0 = side view, 1 = isometric
 PVector worldToScreen(float x, float y, float z, float t) {
-  float s = 40;  // pixels per world unit
-  PVector side = new PVector(x * s, -y * s);
+  PVector side = new PVector(x * worldUnits, -y * worldUnits);
   PVector iso = new PVector(
-    (x + z) * s * 0.5,
-    (z - x) * s * 0.25 - y * s * 0.5
+    (x + z) * worldUnits * 0.5,
+    (z - x) * worldUnits * 0.25 - y * worldUnits * 0.5
   );
   return PVector.lerp(side, iso, t);
 }

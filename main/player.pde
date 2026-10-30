@@ -8,7 +8,6 @@ class Player {
   float accel = 100;       // world units per second squared (was moveSpeed)
   float friction = 6;     // higher = stops faster
 
-  float scale = 40;         // pixels per world unit
   boolean isIso = false;    // Is in isometric view or not)
   float shiftT = 0;         // 0 = side view, 1 = iso
 
