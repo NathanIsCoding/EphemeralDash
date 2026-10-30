@@ -1,27 +1,28 @@
 Player player;
 PVector cam = new PVector();
-Level0 level;
+Level level;
 int lastMillis;
+boolean spaceDown = false;
 
 float worldUnits = 40;
 
 void setup() {
   size(1000, 800);
-  player = new Player(new PVector(0, 0, 0));
-  level = new Level0();
+  level = new Level("level1.json");
+  player = new Player(level.spawn.copy());
+  cam = player.project();
   lastMillis = millis();
 }
 
 void draw() {
-  float dt = (millis() - lastMillis) / 1000.0;
+  float dt = min((millis() - lastMillis) / 1000.0, 0.05);
   lastMillis = millis();
 
   player.update(dt);
+  cam.lerp(player.project(), 1 - exp(-dt * 8));
 
   background(20);
   pushMatrix();
-  PVector target = player.project();
-  cam.lerp(target, 1 - exp(-dt * 8));   // smoothing; raise 8 for a tighter follow
   translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
   level.display(player.shiftT);
   player.display();
@@ -30,11 +31,15 @@ void draw() {
 
 void keyPressed() {
   player.setKey(key, true);
-  if (key == ' ') player.toggleShift();
+  if (key == ' ' && !spaceDown) {
+    spaceDown = true;
+    player.toggleShift();
+  }
 }
 
 void keyReleased() {
   player.setKey(key, false);
+  if (key == ' ') spaceDown = false;
 }
 
 // t: 0 = side view, 1 = isometric
