@@ -38,8 +38,8 @@ PVector worldToScreen(float x, float y, float z, float t) {
   float s = 40;  // pixels per world unit
   PVector side = new PVector(x * s, -y * s);
   PVector iso = new PVector(
-    (x - z) * s * 0.5,
-    (x + z) * s * 0.25 - y * s * 0.5
+    (x + z) * s * 0.5,
+    (z - x) * s * 0.25 - y * s * 0.5
   );
   return PVector.lerp(side, iso, t);
 }
