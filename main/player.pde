@@ -1,22 +1,20 @@
-class Player { 
+class Player {
 
-  PVector input;
-  PVector pos;
+  PVector pos;          // pos.y = feet
   PVector velocity;
-  
-  float maxSpeed = 10;     // safety cap, world units per second
-  float accel = 100;       // world units per second squared (was moveSpeed)
-  float friction = 6;     // higher = stops faster
+  float radius = 0.5;   // world units
 
-  boolean isIso = false;    // Is in isometric view or not)
-  float shiftT = 0;         // 0 = side view, 1 = iso
+  float maxSpeed = 20;  // safety cap, world units per second
+  float accel = 200;    // world units per second squared
+  float friction = 6;   // higher = stops faster
+
+  boolean isIso = false;  // in isometric view or not
+  float shiftT = 0;       // 0 = side view, 1 = iso
 
   boolean left, right, fwd, back;
 
-
-
-  Player(PVector pos) { 
-    this.pos = pos;
+  Player(PVector pos) {
+    this.pos = pos.copy();  // copy so the level's spawn is not modified
     velocity = new PVector();
   }
 
@@ -26,17 +24,17 @@ class Player {
 
   void setKey(char k, boolean down) {
     switch (Character.toLowerCase(k)) {
-      case 'a': 
-        left = down; 
+      case 'a':
+        left = down;
         break;
-      case 'd': 
-        right = down; 
+      case 'd':
+        right = down;
         break;
-      case 'w': 
-        fwd = down; 
+      case 'w':
+        fwd = down;
         break;
-      case 's': 
-        back = down; 
+      case 's':
+        back = down;
         break;
     }
   }
@@ -45,16 +43,11 @@ class Player {
     // 1. Build the input vector from the keys
     PVector input = new PVector();
 
-    if (back)  {
-      input.x -= 1;
-    }
-
-    if (fwd) {
-      input.x += 1;
-    }
+    if (back) input.x -= 1;
+    if (fwd)  input.x += 1;
 
     // depth only exists in iso view
-    if (isIso) {            
+    if (isIso) {
       if (left)  input.z -= 1;
       if (right) input.z += 1;
     }
@@ -81,13 +74,14 @@ class Player {
   }
 
   PVector project() {
-    return worldToScreen(pos.x, pos.y, pos.z, shiftT);
+    // draw from the center of the circle, not the feet
+    return worldToScreen(pos.x, pos.y + radius, pos.z, shiftT);
   }
 
   void display() {
     PVector p = project();
     noStroke();
     fill(255, 80, 80);
-    circle(p.x, p.y, 30);
+    circle(p.x, p.y, radius * 2 * worldUnits);
   }
 }

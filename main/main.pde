@@ -24,7 +24,7 @@ void draw() {
   background(20);
   pushMatrix();
   translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
-  level.display(player.shiftT);
+  level.display(player.shiftT, player);
   player.display();
   popMatrix();
 }
