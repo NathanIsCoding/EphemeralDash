@@ -1,6 +1,6 @@
 {
   "name": "Level 1",
-  "spawn": [0, 0, 0],
+  "spawn": [1, 0, 0],
   "goal": [20, 0, 0],
   "platforms": [
     { "pos": [0, -1, 0], "size": [24, 1, 24] }

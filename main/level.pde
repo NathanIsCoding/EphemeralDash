@@ -2,13 +2,43 @@ import java.util.HashSet;
 
 class Platform {
   PVector pos, size;
-  color left  = color(40, 90, 170);
+  color left = color(40, 90, 170);
   color front = color(60, 120, 210);
-  color top   = color(90, 150, 240);
+  color top = color(90, 150, 240);
 
   Platform(PVector pos, PVector size) {
     this.pos = pos;
     this.size = size;
+  }
+
+  // Box vs box
+  boolean overlaps(PVector otherPos, PVector otherSize, boolean is3D) {
+    boolean xHit = otherPos.x < pos.x + size.x && otherPos.x + otherSize.x > pos.x;
+    boolean yHit = otherPos.y < pos.y + size.y && otherPos.y + otherSize.y > pos.y;
+    boolean zHit = otherPos.z < pos.z + size.z && otherPos.z + otherSize.z > pos.z;
+    return is3D ? (xHit && yHit && zHit) : (xHit && yHit);
+  }
+
+  boolean overlapsSphere(PVector center, float r, boolean is3D) {
+    float cx = constrain(center.x, pos.x, pos.x + size.x);
+    float cy = constrain(center.y, pos.y, pos.y + size.y);
+    float dx = center.x - cx;
+    float dy = center.y - cy;
+    float distSq = dx*dx + dy*dy;
+
+    if (is3D) {
+      float cz = constrain(center.z, pos.z, pos.z + size.z);
+      float dz = center.z - cz;
+      distSq += dz*dz;
+    }
+    return distSq <= r*r;
+  }
+
+  // Point vs box
+  boolean contains(PVector p, boolean is3D) {
+    boolean inXY = p.x >= pos.x && p.x <= pos.x + size.x && p.y >= pos.y && p.y <= pos.y + size.y;
+    boolean inZ = p.z >= pos.z && p.z <= pos.z + size.z;
+    return is3D ? (inXY && inZ) : inXY;
   }
 }
 
@@ -28,6 +58,22 @@ class Dot {
   Dot(PVector pos, float radius) {
     this.pos = pos;
     this.radius = radius;
+  }
+
+  // Point vs dot
+  boolean checkCollision(PVector p, boolean is3D) {
+    float d = is3D
+      ? pos.dist(p)
+      : dist(pos.x, pos.y, p.x, p.y);   // ignore z in 2D
+    return d <= radius;
+  }
+
+  // Circle/sphere vs dot (if the player has a size)
+  boolean checkCollision(PVector p, float otherRadius, boolean is3D) {
+    float d = is3D
+      ? pos.dist(p)
+      : dist(pos.x, pos.y, p.x, p.y);
+    return d <= radius + otherRadius;
   }
 }
 
@@ -55,9 +101,9 @@ class Level {
 
   Level(String file) {
     JSONObject json = loadJSONObject("levels/" + file);
-    name  = json.getString("name", file);
+    name = json.getString("name", file);
     spawn = readVec(json.getJSONArray("spawn"));
-    goal  = readVec(json.getJSONArray("goal"));
+    goal = readVec(json.getJSONArray("goal"));
 
     JSONArray ps = json.getJSONArray("platforms");
     if (ps != null) {
@@ -84,11 +130,21 @@ class Level {
     }
   }
 
+  boolean collides(PVector center, float r, boolean is3D) {
+    for (Platform pl : boxes) {
+      if (pl.overlapsSphere(center, r, is3D)) return true;
+    }
+    for (Dot d : dots) {
+      if (d.checkCollision(center, r, is3D)) return true;
+    }
+    return false;
+  }
+
   void display(float t, Player player) {
     noStroke();
 
     ArrayList<Platform> sorted = sortBoxes(); // far to near
-
+    
     // dots and player as items
     ArrayList<Item> items = new ArrayList<Item>();
     for (Dot d : dots) {

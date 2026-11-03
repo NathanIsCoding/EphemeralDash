@@ -1,15 +1,17 @@
 class Player {
 
-  PVector pos;          // pos.y = feet
+  PVector pos;  // pos.y = feet
   PVector velocity;
-  float radius = 0.5;   // world units
+  float radius = 0.5;  // world units
 
   float maxSpeed = 20;  // safety cap, world units per second
-  float accel = 200;    // world units per second squared
-  float friction = 6;   // higher = stops faster
+  float accel = 200;  // world units per second squared
+  float friction = 6;  // higher = stops faster
+  float gravity = 9.81;  // gravitational constant
 
   boolean isIso = false;  // in isometric view or not
-  float shiftT = 0;       // 0 = side view, 1 = iso
+  boolean isGrounded = false; // if on ground
+  float shiftT = 0;  // 0 = side view, 1 = iso
 
   boolean left, right, fwd, back;
 
@@ -44,14 +46,14 @@ class Player {
     PVector input = new PVector();
 
     if(!isIso) {
-      if (right)  input.x += 1;
+      if (right) input.x += 1;
       if (left) input.x -= 1;
     } else { 
       // depth only exists in iso view
-      if (fwd)  input.x += 1;
+      if (fwd) input.x += 1;
       if (back) input.x -= 1;
       if (right) input.z += 1;
-      if (left)  input.z -= 1;
+      if (left) input.z -= 1;
     }
 
     // ensures diagonals are not faster
@@ -65,10 +67,28 @@ class Player {
     // 3. Friction, cap, and kill leftover depth motion in side view
     velocity.mult(max(0, 1 - friction * dt));
     velocity.limit(maxSpeed);
-    if (!isIso) velocity.z = 0;
+    if (!isIso) { velocity.z = 0; }
 
-    // 4. Integrate position (after velocity, so there is no input lag)
-    pos.add(PVector.mult(velocity, dt));
+    // 4. Apply gravity (if not on ground)
+    // not implemented yet TODO
+    if(!isIso && !isGrounded) { 
+      velocity.mult(max(0, 1 - gravity * dt));
+    }
+
+    // 5. Integrate position (after velocity, so there is no input lag)
+    // pos.add(PVector.mult(velocity, dt));
+    PVector step = PVector.mult(velocity, dt);
+
+    pos.x += step.x;
+    if (hits()) { pos.x -= step.x; velocity.x = 0; }
+
+    pos.y += step.y;
+    if (hits()) { pos.y -= step.y; velocity.y = 0; }
+
+    if (isIso) {
+      pos.z += step.z;
+      if (hits()) { pos.z -= step.z; velocity.z = 0; }
+    }
 
     // 5. View blend
     float target = isIso ? 1 : 0;
@@ -85,5 +105,10 @@ class Player {
     noStroke();
     fill(255, 80, 80);
     circle(p.x, p.y, radius * 2 * worldUnits);
+  }
+
+  boolean hits() {
+    PVector center = new PVector(pos.x, pos.y + radius, pos.z);
+    return level.collides(center, (radius - 0.05), isIso);
   }
 }
