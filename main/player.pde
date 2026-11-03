@@ -43,13 +43,15 @@ class Player {
     // 1. Build the input vector from the keys
     PVector input = new PVector();
 
-    if (back) input.x -= 1;
-    if (fwd)  input.x += 1;
-
-    // depth only exists in iso view
-    if (isIso) {
-      if (left)  input.z -= 1;
+    if(!isIso) {
+      if (right)  input.x += 1;
+      if (left) input.x -= 1;
+    } else { 
+      // depth only exists in iso view
+      if (fwd)  input.x += 1;
+      if (back) input.x -= 1;
       if (right) input.z += 1;
+      if (left)  input.z -= 1;
     }
 
     // ensures diagonals are not faster
