@@ -1,103 +1,9 @@
-import java.util.HashSet;
-
-class Platform {
-  PVector pos, size;
-  color left = color(40, 90, 170);
-  color front = color(60, 120, 210);
-  color top = color(90, 150, 240);
-
-  Platform(PVector pos, PVector size) {
-    this.pos = pos;
-    this.size = size;
-  }
-
-  // Box vs box
-  boolean overlaps(PVector otherPos, PVector otherSize, boolean is3D) {
-    boolean xHit = otherPos.x < pos.x + size.x && otherPos.x + otherSize.x > pos.x;
-    boolean yHit = otherPos.y < pos.y + size.y && otherPos.y + otherSize.y > pos.y;
-    boolean zHit = otherPos.z < pos.z + size.z && otherPos.z + otherSize.z > pos.z;
-    return is3D ? (xHit && yHit && zHit) : (xHit && yHit);
-  }
-
-  boolean overlapsSphere(PVector center, float r, boolean is3D) {
-    float cx = constrain(center.x, pos.x, pos.x + size.x);
-    float cy = constrain(center.y, pos.y, pos.y + size.y);
-    float dx = center.x - cx;
-    float dy = center.y - cy;
-    float distSq = dx*dx + dy*dy;
-
-    if (is3D) {
-      float cz = constrain(center.z, pos.z, pos.z + size.z);
-      float dz = center.z - cz;
-      distSq += dz*dz;
-    }
-    return distSq <= r*r;
-  }
-
-  // Point vs box
-  boolean contains(PVector p, boolean is3D) {
-    boolean inXY = p.x >= pos.x && p.x <= pos.x + size.x && p.y >= pos.y && p.y <= pos.y + size.y;
-    boolean inZ = p.z >= pos.z && p.z <= pos.z + size.z;
-    return is3D ? (inXY && inZ) : inXY;
-  }
-}
-
-class Cube extends Platform {
-  Cube(PVector pos, PVector size) {
-    super(pos, size);
-    left  = color(170, 60, 60);
-    front = color(210, 80, 80);
-    top   = color(240, 120, 120);
-  }
-}
-
-class Dot {
-  PVector pos;
-  float radius;
-
-  Dot(PVector pos, float radius) {
-    this.pos = pos;
-    this.radius = radius;
-  }
-
-  // Point vs dot
-  boolean checkCollision(PVector p, boolean is3D) {
-    float d = is3D
-      ? pos.dist(p)
-      : dist(pos.x, pos.y, p.x, p.y);   // ignore z in 2D
-    return d <= radius;
-  }
-
-  // Circle/sphere vs dot (if the player has a size)
-  boolean checkCollision(PVector p, float otherRadius, boolean is3D) {
-    float d = is3D
-      ? pos.dist(p)
-      : dist(pos.x, pos.y, p.x, p.y);
-    return d <= radius + otherRadius;
-  }
-}
-
-// A dot or the player, placed into the sorted box list
-class Item {
-  PVector feet;   // x/z centre, y = feet (same convention as player.pos)
-  float r;
-  Dot dot;        // null means player
-  int slot;       // how many boxes are drawn before this item
-  float key;      // depth among items, far to near
-
-  Item(PVector feet, float r, Dot dot) {
-    this.feet = feet;
-    this.r = r;
-    this.dot = dot;
-    key = -feet.x + feet.z + feet.y + r;
-  }
-}
+import java.util.PriorityQueue;
 
 class Level {
   String name;
   PVector spawn, goal;
-  ArrayList<Platform> boxes = new ArrayList<Platform>(); // platforms and cubes
-  ArrayList<Dot> dots = new ArrayList<Dot>();
+  ArrayList<GameObject> objects = new ArrayList<GameObject>(); // static world objects
 
   Level(String file) {
     JSONObject json = loadJSONObject("levels/" + file);
@@ -109,7 +15,7 @@ class Level {
     if (ps != null) {
       for (int i = 0; i < ps.size(); i++) {
         JSONObject p = ps.getJSONObject(i);
-        boxes.add(new Platform(readVec(p.getJSONArray("pos")), readVec(p.getJSONArray("size"))));
+        objects.add(new Platform(readVec(p.getJSONArray("pos")), readVec(p.getJSONArray("size"))));
       }
     }
 
@@ -117,7 +23,7 @@ class Level {
     if (cs != null) {
       for (int i = 0; i < cs.size(); i++) {
         JSONObject c = cs.getJSONObject(i);
-        boxes.add(new Cube(readVec(c.getJSONArray("pos")), readVec(c.getJSONArray("size"))));
+        objects.add(new Cube(readVec(c.getJSONArray("pos")), readVec(c.getJSONArray("size"))));
       }
     }
 
@@ -125,119 +31,82 @@ class Level {
     if (ds != null) {
       for (int i = 0; i < ds.size(); i++) {
         JSONObject d = ds.getJSONObject(i);
-        dots.add(new Dot(readVec(d.getJSONArray("pos")), d.getFloat("radius", 0.5)));
+        objects.add(new Dot(readVec(d.getJSONArray("pos")), d.getFloat("radius", 0.5)));
       }
     }
   }
 
   boolean collides(PVector center, float r, boolean is3D) {
-    for (Platform pl : boxes) {
-      if (pl.overlapsSphere(center, r, is3D)) return true;
-    }
-    for (Dot d : dots) {
-      if (d.checkCollision(center, r, is3D)) return true;
+    for (GameObject o : objects) {
+      if (o.collides(center, r, is3D)) return true;
     }
     return false;
   }
 
   void display(float t, Player player) {
     noStroke();
+    ArrayList<GameObject> toDraw = new ArrayList<GameObject>(objects);
+    toDraw.add(player);
+    for (GameObject o : depthSort(toDraw)) o.display(t);
+  }
+}
 
-    ArrayList<Platform> sorted = sortBoxes(); // far to near
-    
-    // dots and player as items
-    ArrayList<Item> items = new ArrayList<Item>();
-    for (Dot d : dots) {
-      items.add(new Item(new PVector(d.pos.x, d.pos.y - d.radius, d.pos.z), d.radius, d));
-    }
-    items.add(new Item(player.pos, player.radius, null));
+// true if a must be drawn before b (a is fully behind b on some axis)
+boolean behind(GameObject a, GameObject b) {
+  PVector aMin = a.minB(), aMax = a.maxB();
+  PVector bMin = b.minB(), bMax = b.maxB();
+  return aMin.x >= bMax.x     // a is on the +x side (camera sees -x)
+      || aMax.z <= bMin.z     // a is on the -z side (camera sees +z)
+      || aMax.y <= bMin.y;    // a is below b (camera sees +y)
+}
 
-    // each item goes after the last box that is NOT in front of it
-    for (Item it : items) {
-      it.slot = 0;
-      for (int i = 0; i < sorted.size(); i++) {
-        if (!inFront(sorted.get(i), it.feet, it.r)) it.slot = i + 1;
+// Orders objects far to near (Kahn's algorithm). When the depth rule leaves
+// several objects free, the farthest by depthKey goes first. Cycles (from
+// overlapping objects) are broken by forcing out the farthest remaining object.
+ArrayList<GameObject> depthSort(ArrayList<GameObject> objs) {
+  int n = objs.size();
+  final float[] key = new float[n];
+  int[] inDegree = new int[n];
+  ArrayList<ArrayList<Integer>> after = new ArrayList<ArrayList<Integer>>();
+
+  for (int i = 0; i < n; i++) {
+    key[i] = objs.get(i).depthKey();
+    after.add(new ArrayList<Integer>());
+  }
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < n; j++) {
+      if (i != j && behind(objs.get(i), objs.get(j))) {
+        after.get(i).add(j);  // i is drawn before j
+        inDegree[j]++;
       }
     }
-    items.sort((a, b) -> Float.compare(a.key, b.key)); // far to near
+  }
 
-    // interleave boxes and items
-    for (int i = 0; i <= sorted.size(); i++) {
-      for (Item it : items) {
-        if (it.slot == i) drawItem(it, t, player);
+  PriorityQueue<Integer> ready = new PriorityQueue<Integer>((a, b) -> Float.compare(key[a], key[b]));
+  for (int i = 0; i < n; i++) {
+    if (inDegree[i] == 0) ready.add(i);
+  }
+
+  boolean[] done = new boolean[n];
+  ArrayList<GameObject> out = new ArrayList<GameObject>();
+  while (out.size() < n) {
+    if (ready.isEmpty()) {
+      // cycle: release the farthest object not yet drawn
+      int pick = -1;
+      for (int i = 0; i < n; i++) {
+        if (!done[i] && inDegree[i] > 0 && (pick < 0 || key[i] < key[pick])) pick = i;
       }
-      if (i < sorted.size()) {
-        Platform p = sorted.get(i);
-        drawBox(p.pos, p.size, t, p.left, p.front, p.top);
-      }
+      inDegree[pick] = 0;
+      ready.add(pick);
+    }
+    int i = ready.poll();
+    done[i] = true;
+    out.add(objs.get(i));
+    for (int j : after.get(i)) {
+      if (--inDegree[j] == 0) ready.add(j);
     }
   }
-
-  void drawItem(Item it, float t, Player player) {
-    if (it.dot != null) {
-      fill(255, 200, 60);
-      PVector s = worldToScreen(it.dot.pos.x, it.dot.pos.y, it.dot.pos.z, t);
-      circle(s.x, s.y, it.dot.radius * 2 * worldUnits);
-    } else {
-      player.display();
-    }
-  }
-
-  // true if a must be drawn before b (a is fully behind b on some axis)
-  boolean behind(Platform a, Platform b) {
-    return a.pos.x >= b.pos.x + b.size.x          // a is on the +x side (camera sees -x)
-        || a.pos.z + a.size.z <= b.pos.z          // a is on the -z side (camera sees +z)
-        || a.pos.y + a.size.y <= b.pos.y;         // a is below b (camera sees +y)
-  }
-
-  ArrayList<Platform> sortBoxes() {
-    ArrayList<Platform> out = new ArrayList<Platform>();
-    HashSet<Platform> seen = new HashSet<Platform>();
-    for (Platform p : boxes) visit(p, seen, out);
-    return out;
-  }
-
-  void visit(Platform p, HashSet<Platform> seen, ArrayList<Platform> out) {
-    if (seen.contains(p)) return;
-    seen.add(p);
-    for (Platform q : boxes) {
-      if (q != p && behind(q, p)) visit(q, seen, out); // draw what's behind p first
-    }
-    out.add(p);
-  }
-
-  void drawBox(PVector pos, PVector size, float t, color left, color front, color top) {
-    float x0 = pos.x, x1 = pos.x + size.x;
-    float y0 = pos.y, y1 = pos.y + size.y;
-    float z0 = pos.z, z1 = pos.z + size.z;
-
-    // Left face (-x), only visible in iso
-    fill(left);
-    quadFace(x0, y0, z0,  x0, y1, z0,  x0, y1, z1,  x0, y0, z1,  t);
-
-    // Front face (+z), the face you see in side view
-    fill(front);
-    quadFace(x0, y0, z1,  x0, y1, z1,  x1, y1, z1,  x1, y0, z1,  t);
-
-    // Top face, only visible in iso
-    fill(top);
-    quadFace(x0, y1, z0,  x1, y1, z0,  x1, y1, z1,  x0, y1, z1,  t);
-  }
-
-  void quadFace(float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float dx, float dy, float dz, float t) {
-    PVector a = worldToScreen(ax, ay, az, t);
-    PVector b = worldToScreen(bx, by, bz, t);
-    PVector c = worldToScreen(cx, cy, cz, t);
-    PVector d = worldToScreen(dx, dy, dz, t);
-    quad(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
-  }
-
-  boolean inFront(Platform b, PVector p, float r) {
-    boolean xFront = b.pos.x + b.size.x <= p.x - r;  // box is on the -x side
-    boolean zFront = b.pos.z >= p.z + r;             // box is on the +z side
-    boolean yFront = b.pos.y >= p.y + 2 * r;         // box is above (pos.y = feet)
-    return xFront || zFront || yFront;
-  }
+  return out;
 }
 
 PVector readVec(JSONArray a) {

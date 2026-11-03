@@ -1,6 +1,5 @@
-class Player {
-
-  PVector pos;  // pos.y = feet
+class Player extends GameObject {
+  // pos.y = feet
   PVector velocity;
   float radius = 0.5;  // world units
 
@@ -20,8 +19,11 @@ class Player {
     velocity = new PVector();
   }
 
-  void toggleShift() {
+  // Returns false (and stays put) if the player would overlap something in the new view
+  boolean toggleShift() {
+    if (hits(!isIso)) return false;
     isIso = !isIso;
+    return true;
   }
 
   void setKey(char k, boolean down) {
@@ -100,15 +102,23 @@ class Player {
     return worldToScreen(pos.x, pos.y + radius, pos.z, shiftT);
   }
 
-  void display() {
-    PVector p = project();
+  PVector minB() { return new PVector(pos.x - radius, pos.y, pos.z - radius); }
+  PVector maxB() { return new PVector(pos.x + radius, pos.y + 2 * radius, pos.z + radius); }
+
+  void display(float t) {
+    PVector p = worldToScreen(pos.x, pos.y + radius, pos.z, t);
     noStroke();
     fill(255, 80, 80);
     circle(p.x, p.y, radius * 2 * worldUnits);
   }
 
   boolean hits() {
+    return hits(isIso);
+  }
+
+  // Collision check as if in the given view (z is ignored in side view)
+  boolean hits(boolean is3D) {
     PVector center = new PVector(pos.x, pos.y + radius, pos.z);
-    return level.collides(center, (radius - 0.05), isIso);
+    return level.collides(center, (radius - 0.05), is3D);
   }
 }

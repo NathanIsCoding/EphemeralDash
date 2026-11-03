@@ -24,8 +24,7 @@ void draw() {
   background(20);
   pushMatrix();
   translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
-  level.display(player.shiftT, player);
-  player.display();
+  level.display(player.shiftT, player);  // draws the player in depth order
   popMatrix();
 }
 
