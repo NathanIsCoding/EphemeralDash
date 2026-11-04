@@ -51,3 +51,9 @@ class PauseMenu extends Menu {
     super("Paused", new String[] { "Resume", "Settings", "Main Menu", "Quit" });
   }
 }
+
+class MainMenu extends Menu {
+  MainMenu() {
+    super("Ephemeral Dash", new String[] { "Play", "Settings", "Level Creator", "Quit" });
+  }
+}
