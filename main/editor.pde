@@ -16,6 +16,8 @@ final int[][] DIRS = {
 };
 
 final float HANDLE_RADIUS = 7;  // pixels
+final float MIN_ZOOM = 0.25, MAX_ZOOM = 4;
+final float DRAG_THRESHOLD = 4;  // pixels a right-press must move before it pans instead of removing
 
 class Editor {
   String file;
@@ -30,7 +32,10 @@ class Editor {
 
   boolean isIso = true;
   float t = 1;  // view blend, same meaning as Player.shiftT
-  PVector cam;
+  PVector cam;      // view centre, in unscaled world pixels
+  float zoom = 1;
+  boolean dragging, dragMoved;
+  float dragStartX, dragStartY, lastDragX, lastDragY;
   boolean panLeft, panRight, panUp, panDown, viewKeyDown, rotKeyDown;
 
   String message = "";
@@ -218,7 +223,7 @@ class Editor {
     for (int i = 0; i < DIRS.length; i++) {
       if (!handleUsable(sel, DIRS[i])) continue;
       PVector s = handlePos(sel, DIRS[i]);
-      if (dist(mx, my, s.x, s.y) <= HANDLE_RADIUS + 3) return i;
+      if (dist(mx, my, s.x, s.y) <= (HANDLE_RADIUS + 3) / zoom) return i;
     }
     return -1;
   }
@@ -257,8 +262,27 @@ class Editor {
 
   // ---------- update / draw ----------
 
+  // ---------- camera ----------
+
+  // Screen position of the world origin. cam is scaled before rounding so the
+  // view stays pixel-aligned at any zoom.
+  float originX() { return width / 2 - round(cam.x * zoom); }
+  float originY() { return height / 2 - round(cam.y * zoom); }
+
+  // A screen position in the unscaled coordinates the level is drawn and picked in
+  float localX(float sx) { return (sx - originX()) / zoom; }
+  float localY(float sy) { return (sy - originY()) / zoom; }
+
+  // Zooms by a factor, keeping the point under (sx, sy) fixed on screen
+  void zoomAt(float factor, float sx, float sy) {
+    float px = localX(sx), py = localY(sy);
+    zoom = constrain(zoom * factor, MIN_ZOOM, MAX_ZOOM);
+    cam.x = px - (sx - width / 2) / zoom;
+    cam.y = py - (sy - height / 2) / zoom;
+  }
+
   void update(float dt) {
-    float speed = 600 * dt;
+    float speed = 600 * dt / zoom;  // same speed on screen at any zoom
     if (panLeft) cam.x -= speed;
     if (panRight) cam.x += speed;
     if (panUp) cam.y -= speed;
@@ -270,7 +294,8 @@ class Editor {
 
   void display() {
     pushMatrix();
-    translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
+    translate(originX(), originY());
+    scale(zoom);
 
     Cell sel = viewOf(selected);
     for (Cell c : view.drawOrder()) view.drawCell(c, t, 255, c == sel);
@@ -285,9 +310,7 @@ class Editor {
   }
 
   void drawHandles() {
-    float mx = mouseX - (width / 2 - round(cam.x));
-    float my = mouseY - (height / 2 - round(cam.y));
-    int hover = handleAt(mx, my);
+    int hover = handleAt(localX(mouseX), localY(mouseY));
     Cell sel = viewOf(selected);
 
     // preview of the cell a hovered handle would add
@@ -304,10 +327,10 @@ class Editor {
       PVector s = handlePos(sel, d);
       float a = handleFacesAway(d) ? 110 : 255;  // far-side handles are faded but still clickable
       stroke(255, a);
-      strokeWeight(2);
+      strokeWeight(2 / zoom);  // handles keep their size on screen at any zoom
       line(center.x, center.y, s.x, s.y);
       fill(i == hover ? color(255, 200, 60, a) : color(255, a));
-      circle(s.x, s.y, HANDLE_RADIUS * 2 * (i == hover ? 1.3 : 1));
+      circle(s.x, s.y, HANDLE_RADIUS * 2 / zoom * (i == hover ? 1.3 : 1));
     }
   }
 
@@ -327,10 +350,11 @@ class Editor {
     text("Level Creator - " + file, 12, 12);
     text("Brush: " + BLOCK_NAMES[brush] + "   [1] Platform  [2] Cube  [3] Dot", 12, 34);
     text("Left click: select, or click a handle to add   Right click / Delete: remove", 12, 56);
-    text("WASD: pan   Q/E: rotate   R: switch view   Enter: save   Esc: save and exit", 12, 78);
+    text("WASD / right or middle drag: pan   Wheel: zoom   Q/E: rotate   R: switch view", 12, 78);
+    text("Enter: save   Esc: save and exit   Zoom: " + nf(zoom, 1, 2) + "x", 12, 100);
     if (millis() < messageUntil) {
       fill(255, 200, 60);
-      text(message, 12, 104);
+      text(message, 12, 126);
     }
   }
 
@@ -342,8 +366,16 @@ class Editor {
   // ---------- input ----------
 
   void mousePressed() {
-    float mx = mouseX - (width / 2 - round(cam.x));
-    float my = mouseY - (height / 2 - round(cam.y));
+    float mx = localX(mouseX), my = localY(mouseY);
+
+    // Right and middle start a drag. A right click that never moves removes on release.
+    if (mouseButton == RIGHT || mouseButton == CENTER) {
+      dragging = true;
+      dragMoved = mouseButton == CENTER;
+      dragStartX = lastDragX = mouseX;
+      dragStartY = lastDragY = mouseY;
+      return;
+    }
 
     if (mouseButton == LEFT) {
       int h = handleAt(mx, my);
@@ -361,9 +393,30 @@ class Editor {
         return;
       }
       selected = worldOf(cellAt(mx, my));
-    } else if (mouseButton == RIGHT) {
-      removeCell(worldOf(cellAt(mx, my)));
     }
+  }
+
+  void mouseDragged() {
+    if (!dragging) return;
+    if (dist(mouseX, mouseY, dragStartX, dragStartY) > DRAG_THRESHOLD) dragMoved = true;
+    if (dragMoved) {
+      cam.x -= (mouseX - lastDragX) / zoom;
+      cam.y -= (mouseY - lastDragY) / zoom;
+    }
+    lastDragX = mouseX;
+    lastDragY = mouseY;
+  }
+
+  void mouseReleased() {
+    if (!dragging) return;
+    dragging = false;
+    if (!dragMoved) {  // only a right press can reach here unmoved; middle starts as moved
+      removeCell(worldOf(cellAt(localX(dragStartX), localY(dragStartY))));
+    }
+  }
+
+  void mouseWheel(float count) {
+    zoomAt(pow(1.1, -count), mouseX, mouseY);
   }
 
   void keyPressed() {

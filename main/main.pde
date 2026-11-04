@@ -145,6 +145,18 @@ void mousePressed() {
   if (state == EDITOR) editor.mousePressed();
 }
 
+void mouseDragged() {
+  if (state == EDITOR) editor.mouseDragged();
+}
+
+void mouseReleased() {
+  if (state == EDITOR) editor.mouseReleased();
+}
+
+void mouseWheel(MouseEvent event) {
+  if (state == EDITOR) editor.mouseWheel(event.getCount());
+}
+
 // t: 0 = side view, 1 = isometric
 PVector worldToScreen(float x, float y, float z, float t) {
   PVector side = new PVector(x * worldUnits, -y * worldUnits);
