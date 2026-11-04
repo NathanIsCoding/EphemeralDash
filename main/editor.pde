@@ -128,13 +128,6 @@ class Editor {
   }
 
   void save() {
-    JSONObject json = new JSONObject();
-    json.setString("name", name);
-    json.setJSONArray("spawn", vecJSON(spawn));
-    json.setJSONArray("goal", vecJSON(goal));
-    json.setJSONArray("platforms", mergeBoxes(BLOCK_PLATFORM));
-    json.setJSONArray("cubes", mergeBoxes(BLOCK_CUBE));
-
     JSONArray ds = new JSONArray();
     for (Cell c : sortedCells()) {
       if (c.type != BLOCK_DOT) continue;
@@ -143,10 +136,34 @@ class Editor {
       d.setFloat("radius", DOT_RADIUS);
       ds.append(d);
     }
-    json.setJSONArray("dots", ds);
 
-    saveJSONObject(json, dataPath("levels/" + file));
+    // save data to JSON
+    ArrayList<String> out = new ArrayList<String>();
+    out.add("{");
+    out.add("  \"name\": " + compactJSON(name) + ",");
+    out.add("  \"spawn\": " + compactJSON(vecJSON(spawn)) + ",");
+    out.add("  \"goal\": " + compactJSON(vecJSON(goal)) + ",");
+    addJSONList(out, "platforms", mergeBoxes(BLOCK_PLATFORM), true);
+    addJSONList(out, "cubes", mergeBoxes(BLOCK_CUBE), true);
+    addJSONList(out, "dots", ds, false);
+    out.add("}");
+
+    saveStrings(dataPath("levels/" + file), out.toArray(new String[0]));
     flash("Saved " + file);
+  }
+
+  // Writes "key": [ ... ] with one item per line
+  void addJSONList(ArrayList<String> out, String key, JSONArray items, boolean trailingComma) {
+    String end = trailingComma ? "," : "";
+    if (items.size() == 0) {
+      out.add("  \"" + key + "\": []" + end);
+      return;
+    }
+    out.add("  \"" + key + "\": [");
+    for (int i = 0; i < items.size(); i++) {
+      out.add("    " + compactJSON(items.get(i)) + (i < items.size() - 1 ? "," : ""));
+    }
+    out.add("  ]" + end);
   }
 
   // Cells ordered by y, then z, then x, so the first unused cell of a box is its min corner
@@ -461,6 +478,40 @@ JSONArray vecJSON(PVector v) {
   a.append(v.y);
   a.append(v.z);
   return a;
+}
+
+// Single-line JSON for a value. Object keys are sorted so output is stable (pos before size/radius).
+String compactJSON(Object v) {
+  if (v instanceof JSONObject) {
+    JSONObject o = (JSONObject) v;
+    ArrayList<String> keys = new ArrayList<String>();
+    for (Object k : o.keys()) keys.add((String) k);
+    java.util.Collections.sort(keys);
+    StringBuilder sb = new StringBuilder("{");
+    for (int i = 0; i < keys.size(); i++) {
+      if (i > 0) sb.append(", ");
+      sb.append(compactJSON(keys.get(i))).append(": ").append(compactJSON(o.get(keys.get(i))));
+    }
+    return sb.append("}").toString();
+  }
+  if (v instanceof JSONArray) {
+    JSONArray a = (JSONArray) v;
+    StringBuilder sb = new StringBuilder("[");
+    for (int i = 0; i < a.size(); i++) {
+      if (i > 0) sb.append(", ");
+      sb.append(compactJSON(a.get(i)));
+    }
+    return sb.append("]").toString();
+  }
+  if (v instanceof String) {
+    return "\"" + ((String) v).replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+  }
+  if (v instanceof Number) {
+    double d = ((Number) v).doubleValue();
+    if (d == Math.rint(d)) return String.valueOf((long) d);
+    return String.valueOf((float) d);
+  }
+  return String.valueOf(v);
 }
 
 JSONArray intsJSON(int x, int y, int z) {
