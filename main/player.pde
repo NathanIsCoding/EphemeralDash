@@ -132,6 +132,11 @@ class Player extends GameObject {
     circle(p.x, p.y, radius * 2 * worldUnits);
   }
 
+  // The player is not in level.objects, so nothing tests against it (it uses hits() below instead)
+  boolean collides(PVector center, float r, boolean is3D) {
+    return false;
+  }
+
   boolean hits() {
     return hits(isIso);
   }

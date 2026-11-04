@@ -8,10 +8,8 @@ abstract class GameObject {
 
   abstract void display(float t);
 
-  // Sphere vs this object. Non-solid objects can leave this as false.
-  boolean collides(PVector center, float r, boolean is3D) {
-    return false;
-  }
+  // Sphere vs this object. Every subclass must decide; non-solid objects just return false.
+  abstract boolean collides(PVector center, float r, boolean is3D);
 
   // Rough far-to-near key, only used to break ties the depth rule leaves open
   float depthKey() {
