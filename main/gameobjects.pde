@@ -10,12 +10,6 @@ abstract class GameObject {
 
   // Sphere vs this object. Every subclass must decide; non-solid objects just return false.
   abstract boolean collides(PVector center, float r, boolean is3D);
-
-  // Rough far-to-near key, only used to break ties the depth rule leaves open
-  float depthKey() {
-    PVector a = minB(), b = maxB();
-    return -(a.x + b.x) * 0.5 + (a.z + b.z) * 0.5 + (a.y + b.y) * 0.5;
-  }
 }
 
 class Platform extends GameObject {

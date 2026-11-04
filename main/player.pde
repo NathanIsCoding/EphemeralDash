@@ -61,10 +61,10 @@ class Player extends GameObject {
       if (left) input.x -= 1;
     } else { 
       // depth only exists in iso view
-      if (fwd) input.x += 1;
-      if (back) input.x -= 1;
-      if (right) input.z += 1;
-      if (left) input.z -= 1;
+      if (right) input.x += 1;
+      if (left) input.x -= 1;
+      if (back) input.z += 1;
+      if (fwd) input.z -= 1;
     }
 
     // ensures diagonals are not faster

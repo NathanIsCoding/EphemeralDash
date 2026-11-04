@@ -9,7 +9,11 @@ boolean rDown = false;
 final int PLAYING = 0;
 final int PAUSED = 1;
 final int MAIN_MENU = 2;
+final int EDITOR = 3;
 int state = MAIN_MENU;
+
+String levelFile = "level1.json";
+Editor editor;
 
 PauseMenu pauseMenu = new PauseMenu();
 MainMenu mainMenu = new MainMenu();
@@ -18,7 +22,7 @@ float worldUnits = 40;
 
 void setup() {
   size(1000, 800);
-  level = new Level("level1.json");
+  level = new Level(levelFile);
   resetPlayer();
   lastMillis = millis();
 }
@@ -46,6 +50,12 @@ void draw() {
     return;
   }
 
+  if (state == EDITOR) {
+    editor.update(dt);
+    editor.display();
+    return;
+  }
+
   // the world is drawn while playing and paused, so it stays visible (frozen) behind the pause menu
   pushMatrix();
   translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
@@ -63,6 +73,18 @@ void keyPressed() {
     key = 0;  // stop Processing from closing the sketch
     if (state == PLAYING) state = PAUSED;
     else if (state == PAUSED) state = PLAYING;
+    else if (state == EDITOR) {
+      // save, then reload so "Play" uses the edited level
+      editor.save();
+      level = new Level(levelFile);
+      resetPlayer();
+      state = MAIN_MENU;
+    }
+    return;
+  }
+
+  if (state == EDITOR) {
+    editor.keyPressed();
     return;
   }
 
@@ -76,7 +98,8 @@ void keyPressed() {
     } else if (choice.equals("Settings")) {
       // TODO: settings menu
     } else if (choice.equals("Level Creator")) {
-      // TODO: level creator
+      editor = new Editor(levelFile);
+      state = EDITOR;
     } else if (choice.equals("Quit")) {
       exit();
     }
@@ -115,6 +138,11 @@ void keyReleased() {
   player.setKey(key, false);
   if (key == ' ') spaceDown = false;
   if (key == 'r' || key == 'R') rDown = false;
+  if (state == EDITOR) editor.keyReleased();
+}
+
+void mousePressed() {
+  if (state == EDITOR) editor.mousePressed();
 }
 
 // t: 0 = side view, 1 = isometric
