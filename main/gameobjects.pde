@@ -122,8 +122,36 @@ class Dot extends GameObject {
   }
 
   void display(float t) {
-    fill(255, 200, 60);
     PVector s = worldToScreen(center.x, center.y, center.z, t);
+    noStroke();
+    fill(255, 200, 60);
     circle(s.x, s.y, radius * 2 * worldUnits);
   }
 }
+
+// Soft shadow on the ground under a ball whose bottom is at (x, bottomY, z).
+// Shrinks and fades as the ball rises, and fades in with the view blend
+// (in side view the ground has no visible top, so there is nothing to draw on).
+void drawShadow(float x, float bottomY, float z, float r, float t) {
+  if (t < 0.01) return;
+  float ground = level.groundBelow(x, bottomY, z);
+  if (Float.isNaN(ground)) return;
+
+  float h = bottomY - ground;
+  float scale = 1 / (1 + 0.35 * h);
+  float sr = r * (0.4 + 0.6 * scale);    // never shrinks below 40%
+  float alpha = 110 * scale * t;
+
+  noStroke();
+  fill(0, alpha);
+  beginShape();
+  int n = 24;
+  for (int i = 0; i < n; i++) {
+    float a = TWO_PI * i / n;
+    // project a circle lying flat on the ground, so it is correct at any view blend
+    PVector p = worldToScreen(x + sr * cos(a), ground, z + sr * sin(a), t);
+    vertex(p.x, p.y);
+  }
+  endShape(CLOSE);
+}
+

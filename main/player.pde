@@ -3,10 +3,12 @@ class Player extends GameObject {
   PVector velocity;
   float radius = 0.5;  // world units
 
-  float maxSpeed = 20;  // safety cap, world units per second
-  float accel = 200;  // world units per second squared
+  float maxSpeed = 15;  // horizontal safety cap, world units per second
+  float accel = 150;  // world units per second squared
   float friction = 6;  // higher = stops faster
-  float gravity = 9.81;  // gravitational constant
+  float gravity = 30;  // world units per second squared
+  float jumpHeight = 2.2;  // world units (peak above take-off)
+  float maxFall = 20;  // terminal velocity, world units per second
 
   boolean isIso = false;  // in isometric view or not
   boolean isGrounded = false; // if on ground
@@ -24,6 +26,13 @@ class Player extends GameObject {
     if (hits(!isIso)) return false;
     isIso = !isIso;
     return true;
+  }
+
+  void jump() {
+    if (isGrounded) {
+      velocity.y = sqrt(2 * gravity * jumpHeight);
+      isGrounded = false;
+    }
   }
 
   void setKey(char k, boolean down) {
@@ -66,16 +75,21 @@ class Player extends GameObject {
     // 2. Accelerate
     velocity.add(PVector.mult(input, accel * dt));
 
-    // 3. Friction, cap, and kill leftover depth motion in side view
-    velocity.mult(max(0, 1 - friction * dt));
-    velocity.limit(maxSpeed);
-    if (!isIso) { velocity.z = 0; }
-
-    // 4. Apply gravity (if not on ground)
-    // not implemented yet TODO
-    if(!isIso && !isGrounded) { 
-      velocity.mult(max(0, 1 - gravity * dt));
+    // 3. Friction and cap on horizontal motion only, so jumps are not damped
+    float damp = max(0, 1 - friction * dt);
+    velocity.x *= damp;
+    velocity.z *= damp;
+    PVector flat = new PVector(velocity.x, 0, velocity.z);
+    if (flat.mag() > maxSpeed) {
+      flat.setMag(maxSpeed);
+      velocity.x = flat.x;
+      velocity.z = flat.z;
     }
+    if (!isIso) { velocity.z = 0; }  // kill leftover depth motion in side view
+
+    // 4. Gravity. Applied every frame, even when grounded,
+    //    so the downward collision below keeps confirming we are on the ground.
+    velocity.y = max(velocity.y - gravity * dt, -maxFall);
 
     // 5. Integrate position (after velocity, so there is no input lag)
     // pos.add(PVector.mult(velocity, dt));
@@ -85,7 +99,12 @@ class Player extends GameObject {
     if (hits()) { pos.x -= step.x; velocity.x = 0; }
 
     pos.y += step.y;
-    if (hits()) { pos.y -= step.y; velocity.y = 0; }
+    isGrounded = false;
+    if (hits()) {
+      pos.y -= step.y;
+      if (step.y < 0) isGrounded = true;  // landed (hitting a ceiling does not count)
+      velocity.y = 0;
+    }
 
     if (isIso) {
       pos.z += step.z;
@@ -106,6 +125,7 @@ class Player extends GameObject {
   PVector maxB() { return new PVector(pos.x + radius, pos.y + 2 * radius, pos.z + radius); }
 
   void display(float t) {
+    drawShadow(pos.x, pos.y, pos.z, radius, t);
     PVector p = worldToScreen(pos.x, pos.y + radius, pos.z, t);
     noStroke();
     fill(255, 80, 80);

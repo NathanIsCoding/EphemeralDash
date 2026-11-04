@@ -43,6 +43,20 @@ class Level {
     return false;
   }
 
+  // Height of the highest box top directly under (x, z) at or below y, or NaN if none
+  float groundBelow(float x, float y, float z) {
+    float best = Float.NaN;
+    for (GameObject o : objects) {
+      if (!(o instanceof Platform)) continue;
+      Platform p = (Platform) o;
+      float top = p.pos.y + p.size.y;
+      boolean over = x >= p.pos.x && x <= p.pos.x + p.size.x
+                  && z >= p.pos.z && z <= p.pos.z + p.size.z;
+      if (over && top <= y + 0.01 && (Float.isNaN(best) || top > best)) best = top;
+    }
+    return best;
+  }
+
   void display(float t, Player player) {
     noStroke();
     ArrayList<GameObject> toDraw = new ArrayList<GameObject>(objects);
@@ -51,13 +65,18 @@ class Level {
   }
 }
 
+// Overlap allowed when deciding draw order. The player's collision sphere is
+// slightly smaller than its drawn size, so it can rest a little inside a surface.
+// Must stay well below the thinnest object (0.5) or it would create false orderings.
+final float SORT_EPS = 0.1;
+
 // true if a must be drawn before b (a is fully behind b on some axis)
 boolean behind(GameObject a, GameObject b) {
   PVector aMin = a.minB(), aMax = a.maxB();
   PVector bMin = b.minB(), bMax = b.maxB();
-  return aMin.x >= bMax.x     // a is on the +x side (camera sees -x)
-      || aMax.z <= bMin.z     // a is on the -z side (camera sees +z)
-      || aMax.y <= bMin.y;    // a is below b (camera sees +y)
+  return aMin.x >= bMax.x - SORT_EPS     // a is on the +x side (camera sees -x)
+      || aMax.z <= bMin.z + SORT_EPS     // a is on the -z side (camera sees +z)
+      || aMax.y <= bMin.y + SORT_EPS;    // a is below b (camera sees +y)
 }
 
 // Orders objects far to near (Kahn's algorithm). When the depth rule leaves

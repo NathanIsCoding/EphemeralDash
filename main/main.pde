@@ -3,6 +3,7 @@ PVector cam = new PVector();
 Level level;
 int lastMillis;
 boolean spaceDown = false;
+boolean rDown = false;
 
 float worldUnits = 40;
 
@@ -30,8 +31,13 @@ void draw() {
 
 void keyPressed() {
   player.setKey(key, true);
+  // the down flags ignore key repeat, so holding a key only triggers once
   if (key == ' ' && !spaceDown) {
     spaceDown = true;
+    player.jump();
+  }
+  if ((key == 'r' || key == 'R') && !rDown) {
+    rDown = true;
     player.toggleShift();
   }
 }
@@ -39,6 +45,7 @@ void keyPressed() {
 void keyReleased() {
   player.setKey(key, false);
   if (key == ' ') spaceDown = false;
+  if (key == 'r' || key == 'R') rDown = false;
 }
 
 // t: 0 = side view, 1 = isometric
