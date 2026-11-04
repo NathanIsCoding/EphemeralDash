@@ -157,12 +157,37 @@ void mouseWheel(MouseEvent event) {
   if (state == EDITOR) editor.mouseWheel(event.getCount());
 }
 
+// Iso projection tuning. A horizontal step of one unit moves (0.5, 0.25) on screen
+// before scaling, so a top edge is sqrt(0.5² + 0.25²) ≈ 0.559 long.
+// ISO_HEIGHT = ISO_EDGE makes vertical edges as long as top edges, so blocks are
+// proper cubes. ISO_ZOOM then sets their size: 1 = every iso edge is as long as a
+// side-view edge, lower = zoomed out.
+
+final float ISO_EDGE = sqrt(0.5 * 0.5 + 0.25 * 0.25);
+final float ISO_ZOOM = 0.60;                  // iso edge length relative to side view
+final float ISO_SCALE = ISO_ZOOM / ISO_EDGE;  // size of the iso view relative to side view
+final float ISO_HEIGHT = ISO_EDGE * 1.2;     // screen length of a vertical edge, before ISO_SCALE. Raise for taller blocks, lower for squatter ones
+
 // t: 0 = side view, 1 = isometric
 PVector worldToScreen(float x, float y, float z, float t) {
   PVector side = new PVector(x * worldUnits, -y * worldUnits);
+  float u = worldUnits * ISO_SCALE;
   PVector iso = new PVector(
-    (x + z) * worldUnits * 0.5,
-    (z - x) * worldUnits * 0.25 - y * worldUnits * 0.5
+    (x + z) * u * 0.5,
+    (z - x) * u * 0.25 - y * u * ISO_HEIGHT
   );
   return PVector.lerp(side, iso, t);
+}
+
+// Screen pixels per world unit for things drawn at a fixed size, like circles,
+// so they keep their size relative to the blocks at any view blend
+float screenScale(float t) {
+  return worldUnits * lerp(1, ISO_SCALE, t);
+}
+
+// The furthest a unit cell's outline reaches from its centre on screen, in pixels.
+// The projection is linear in t, so blending never exceeds the blend of the two ends.
+float cellReach(float t) {
+  float iso = max(0.5, 0.25 + ISO_HEIGHT / 2) * ISO_SCALE;
+  return lerp(0.5, iso, t) * worldUnits;
 }

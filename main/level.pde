@@ -76,7 +76,7 @@ class Level {
   // (later slots win ties, so the player stays on top when it is ambiguous).
   int playerSlot(ArrayList<Cell> order, float t, Player player) {
     PVector p = worldToScreen(player.pos.x, player.pos.y + player.radius, player.pos.z, t);
-    float reach = (0.5 + player.radius) * worldUnits + 1;
+    float reach = cellReach(t) + player.radius * screenScale(t) + 1;
     PVector pMin = player.minB(), pMax = player.maxB();
 
     ArrayList<Integer> idx = new ArrayList<Integer>();

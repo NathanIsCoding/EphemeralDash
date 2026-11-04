@@ -129,7 +129,7 @@ class Player extends GameObject {
     PVector p = worldToScreen(pos.x, pos.y + radius, pos.z, t);
     noStroke();
     fill(255, 80, 80);
-    circle(p.x, p.y, radius * 2 * worldUnits);
+    circle(p.x, p.y, radius * 2 * screenScale(t));
   }
 
   // The player is not in level.objects, so nothing tests against it (it uses hits() below instead)

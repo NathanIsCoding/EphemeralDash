@@ -117,7 +117,7 @@ class Dot extends GameObject {
     PVector s = worldToScreen(center.x, center.y, center.z, t);
     noStroke();
     fill(255, 200, 60);
-    circle(s.x, s.y, radius * 2 * worldUnits);
+    circle(s.x, s.y, radius * 2 * screenScale(t));
   }
 }
 

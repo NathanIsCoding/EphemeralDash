@@ -48,7 +48,7 @@ class Editor {
     cam = worldToScreen(spawn.x, spawn.y, spawn.z, t);
   }
 
-  // ---------- rotation ----------
+  // rotation 
 
   // One quarter turn maps the point (x, z) to (-z, x). A unit cell's corner moves
   // by an extra -1 on x, because the cell's far corner becomes its near one.
@@ -115,7 +115,7 @@ class Editor {
     return worldToScreen(s.x, s.y, s.z, t);
   }
 
-  // ---------- load / save ----------
+  // load / save 
 
   void load() {
     JSONObject json = loadJSONObject("levels/" + file);
@@ -198,7 +198,7 @@ class Editor {
     return true;
   }
 
-  // ---------- handles and picking (all in display coordinates) ----------
+  // handles and picking (all in display coordinates)
 
   PVector handlePos(Cell c, int[] d) {
     return worldToScreen(c.x + 0.5 + d[0] * 0.9, c.y + 0.5 + d[1] * 0.9, c.z + 0.5 + d[2] * 0.9, t);
@@ -235,7 +235,7 @@ class Editor {
       Cell c = o.get(i);
       if (c.type == BLOCK_DOT) {
         PVector s = view.screenCenter(c, t);
-        if (dist(mx, my, s.x, s.y) <= DOT_RADIUS * worldUnits) return c;
+        if (dist(mx, my, s.x, s.y) <= DOT_RADIUS * screenScale(t)) return c;
         continue;
       }
       for (int f = 0; f < 3; f++) {
@@ -260,9 +260,9 @@ class Editor {
     rebuildView();
   }
 
-  // ---------- update / draw ----------
+  // update / draw 
 
-  // ---------- camera ----------
+  // camera 
 
   // Screen position of the world origin. cam is scaled before rounding so the
   // view stays pixel-aligned at any zoom.
@@ -339,7 +339,7 @@ class Editor {
     noFill();
     stroke(c);
     strokeWeight(2);
-    circle(s.x, s.y, worldUnits);
+    circle(s.x, s.y, screenScale(t));
   }
 
   void drawHud() {
@@ -363,7 +363,7 @@ class Editor {
     messageUntil = millis() + 1500;
   }
 
-  // ---------- input ----------
+  // input 
 
   void mousePressed() {
     float mx = localX(mouseX), my = localY(mouseY);

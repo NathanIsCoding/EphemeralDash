@@ -131,7 +131,7 @@ class CellGrid {
         noStroke();
       }
       fill(255, 200, 60, alpha);
-      circle(s.x, s.y, DOT_RADIUS * 2 * worldUnits);
+      circle(s.x, s.y, DOT_RADIUS * 2 * screenScale(t));
       return;
     }
 
@@ -163,8 +163,8 @@ class CellGrid {
     }
   }
 
-  // Screen-space centre of a cell. A unit cell never extends more than half a
-  // world unit from it on screen, at any view blend.
+  // Screen-space centre of a cell. A unit cell never extends more than
+  // cellReach(t) pixels from it on screen.
   PVector screenCenter(Cell c, float t) {
     return worldToScreen(c.x + 0.5, c.y + 0.5, c.z + 0.5, t);
   }
