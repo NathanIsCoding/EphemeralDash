@@ -59,7 +59,8 @@ void draw() {
   // the world is drawn while playing and paused, so it stays visible (frozen) behind the pause menu
   pushMatrix();
   translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
-  level.display(player.shiftT, player);  // draws the player in depth order
+  // draws the player in depth order; while paused dt is 0 so block fading freezes too
+  level.display(player.shiftT, player, state == PLAYING ? dt : 0);
   popMatrix();
 
   if (state == PAUSED) pauseMenu.display();

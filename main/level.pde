@@ -3,6 +3,7 @@ class Level {
   PVector spawn, goal;
   ArrayList<GameObject> objects = new ArrayList<GameObject>(); // static world objects, used for collision
   CellGrid grid = new CellGrid();  // the same world split into unit cells, used for drawing
+  HashMap<Cell, Float> fade = new HashMap<Cell, Float>();  // current alpha of cells that are not fully opaque
 
   Level(String file) {
     JSONObject json = loadJSONObject("levels/" + file);
@@ -37,6 +38,7 @@ class Level {
     grid.addBoxes(ps, BLOCK_PLATFORM);
     grid.addBoxes(cs, BLOCK_CUBE);
     grid.addDots(ds);
+    grid.seeThrough = fade.keySet();  // live view: every faded cell counts as see-through
   }
 
   boolean collides(PVector center, float r, boolean is3D) {
@@ -60,14 +62,52 @@ class Level {
     return best;
   }
 
-  void display(float t, Player player) {
+  void display(float t, Player player, float dt) {
     ArrayList<Cell> order = grid.drawOrder();
     int slot = playerSlot(order, t, player);
+
+    PVector p = worldToScreen(player.pos.x, player.pos.y + player.radius, player.pos.z, t);
+    float r = player.radius * screenScale(t);
+    float k = 1 - exp(-dt * COVER_FADE_SPEED);
+    float coveredAlpha = lerp(255, COVER_ALPHA, t);  // only fade in iso, blending with the view
+
+    // Update every cell's fade before drawing any, so cells drawn earlier already
+    // know which neighbours are see-through this frame
+    for (int i = 0; i < order.size(); i++) {
+      Cell c = order.get(i);
+      // only cells drawn after the player can cover it
+      float target = i >= slot && coversPlayer(c, p, r, t) ? coveredAlpha : 255;
+      float alpha = fade.getOrDefault(c, 255f);
+      alpha += (target - alpha) * k;
+      if (alpha > 254.5) fade.remove(c);  // fully opaque cells are not stored
+      else fade.put(c, alpha);
+    }
+
     for (int i = 0; i < order.size(); i++) {
       if (i == slot) player.display(t);
-      grid.drawCell(order.get(i), t, 255, false);
+      Cell c = order.get(i);
+      grid.drawCell(c, t, fade.getOrDefault(c, 255f), false);
     }
     if (slot == order.size()) player.display(t);
+  }
+
+  // true if any visible face of a block overlaps the player's circle on screen.
+  // The circle is approximated by its centre and 8 points just inside its edge.
+  boolean coversPlayer(Cell c, PVector p, float r, float t) {
+    if (c.type == BLOCK_DOT) return false;
+    PVector s = grid.screenCenter(c, t);
+    if (abs(s.x - p.x) > cellReach(t) + r || abs(s.y - p.y) > cellReach(t) + r) return false;
+
+    for (int f = 0; f < 3; f++) {
+      if (!grid.faceVisible(c, f)) continue;
+      PVector[] q = grid.faceCorners(c.x, c.y, c.z, f, t);
+      if (inQuad(p.x, p.y, q)) return true;
+      for (int i = 0; i < 8; i++) {
+        float a = TWO_PI * i / 8;
+        if (inQuad(p.x + cos(a) * r * 0.85, p.y + sin(a) * r * 0.85, q)) return true;
+      }
+    }
+    return false;
   }
 
   // Cells are already in exact painter's order, so the player only needs to be slotted
@@ -116,6 +156,10 @@ class Level {
     return bestSlot;
   }
 }
+
+// Blocks in front of the player fade to this alpha in iso view (255 = opaque)
+final float COVER_ALPHA = 90;
+final float COVER_FADE_SPEED = 12;  // higher = fades faster
 
 // Overlap allowed when deciding draw order. The player's collision sphere is
 // slightly smaller than its drawn size, so it can rest a little inside a surface.

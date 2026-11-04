@@ -41,15 +41,18 @@ class Cell {
 class CellGrid {
   HashMap<String, Cell> cells = new HashMap<String, Cell>();
   ArrayList<Cell> order;  // far-to-near draw order, rebuilt only when cells change
+  // Cells drawn partly transparent. They do not hide their neighbours' faces,
+  // or the background would show through them where those faces were skipped.
+  java.util.Set<Cell> seeThrough = new HashSet<Cell>();
 
   String keyOf(int x, int y, int z) { return x + "," + y + "," + z; }
 
   Cell get(int x, int y, int z) { return cells.get(keyOf(x, y, z)); }
 
-  // Dots do not hide the faces of neighbouring blocks
+  // Dots and see-through cells do not hide the faces of neighbouring blocks
   boolean solidAt(int x, int y, int z) {
     Cell c = get(x, y, z);
-    return c != null && c.type != BLOCK_DOT;
+    return c != null && c.type != BLOCK_DOT && !seeThrough.contains(c);
   }
 
   Cell put(int x, int y, int z, int type) {
