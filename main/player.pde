@@ -148,21 +148,22 @@ class Player extends GameObject {
     return true;
   }
 
-  PVector project() {
-    // follow the center of the cube, not the feet
-    return worldToScreen(pos.x, pos.y + half, pos.z, shiftT);
+  // World-space center of the hitbox (what the camera follows), not the feet
+  PVector center() {
+    return new PVector(pos.x, pos.y + half, pos.z);
   }
 
   PVector minB() { return new PVector(pos.x - half, pos.y, pos.z - half); }
   PVector maxB() { return new PVector(pos.x + half, pos.y + size, pos.z + half); }
 
-  void display(float t) {
-    drawShadow(pos.x, pos.y, pos.z, half, t);
-    // drawn as a ball inscribed in the hitbox (collision still uses the box)
-    PVector p = worldToScreen(pos.x, pos.y + half, pos.z, t);
-    noStroke();
-    fill(255, 80, 80);
-    circle(p.x, p.y, size * worldUnits);
+  // drawn as a ball inscribed in the hitbox (collision still uses the box)
+  void display() {
+    drawBall(center(), half, color(255, 80, 80));
+  }
+
+  // Separate from display() because it is translucent and must be drawn last
+  void displayShadow() {
+    drawShadow(pos.x, pos.y, pos.z, half, shiftT);
   }
 
   // The player is not in level.objects, so nothing tests against it (it uses hits() below instead)

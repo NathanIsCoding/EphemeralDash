@@ -1,5 +1,3 @@
-import java.util.PriorityQueue;
-
 class Level {
   String name;
   PVector spawn, goal;
@@ -67,74 +65,14 @@ class Level {
     return best;
   }
 
-  void display(float t, Player player) {
+  // Drawn in world space (inside applyCamera). The depth buffer handles occlusion,
+  // so there is no draw ordering. The shadow goes last because it is translucent.
+  void display(Player player) {
     noStroke();
-    ArrayList<GameObject> toDraw = new ArrayList<GameObject>(objects);
-    toDraw.add(player);
-    for (GameObject o : depthSort(toDraw)) o.display(t);
+    for (GameObject o : objects) o.display();
+    player.display();
+    player.displayShadow();
   }
-}
-
-// Overlap allowed when deciding draw order, so objects that touch (or are a hair
-// inside each other from float error) still get a clear order.
-final float SORT_EPS = 0.1;
-
-// true if a must be drawn before b (a is fully behind b on some axis)
-boolean behind(GameObject a, GameObject b) {
-  PVector aMin = a.minB(), aMax = a.maxB();
-  PVector bMin = b.minB(), bMax = b.maxB();
-  return aMin.x >= bMax.x - SORT_EPS     // a is on the +x side (camera sees -x)
-      || aMax.z <= bMin.z + SORT_EPS     // a is on the -z side (camera sees +z)
-      || aMax.y <= bMin.y + SORT_EPS;    // a is below b (camera sees +y)
-}
-
-// Orders objects far to near (Kahn's algorithm). When the depth rule leaves
-// several objects free, the farthest by depthKey goes first. Cycles (from
-// overlapping objects) are broken by forcing out the farthest remaining object.
-ArrayList<GameObject> depthSort(ArrayList<GameObject> objs) {
-  int n = objs.size();
-  final float[] key = new float[n];
-  int[] inDegree = new int[n];
-  ArrayList<ArrayList<Integer>> after = new ArrayList<ArrayList<Integer>>();
-
-  for (int i = 0; i < n; i++) {
-    key[i] = objs.get(i).depthKey();
-    after.add(new ArrayList<Integer>());
-  }
-  for (int i = 0; i < n; i++) {
-    for (int j = 0; j < n; j++) {
-      if (i != j && behind(objs.get(i), objs.get(j))) {
-        after.get(i).add(j);  // i is drawn before j
-        inDegree[j]++;
-      }
-    }
-  }
-
-  PriorityQueue<Integer> ready = new PriorityQueue<Integer>((a, b) -> Float.compare(key[a], key[b]));
-  for (int i = 0; i < n; i++) {
-    if (inDegree[i] == 0) ready.add(i);
-  }
-
-  boolean[] done = new boolean[n];
-  ArrayList<GameObject> out = new ArrayList<GameObject>();
-  while (out.size() < n) {
-    if (ready.isEmpty()) {
-      // cycle: release the farthest object not yet drawn
-      int pick = -1;
-      for (int i = 0; i < n; i++) {
-        if (!done[i] && inDegree[i] > 0 && (pick < 0 || key[i] < key[pick])) pick = i;
-      }
-      inDegree[pick] = 0;
-      ready.add(pick);
-    }
-    int i = ready.poll();
-    done[i] = true;
-    out.add(objs.get(i));
-    for (int j : after.get(i)) {
-      if (--inDegree[j] == 0) ready.add(j);
-    }
-  }
-  return out;
 }
 
 PVector readVec(JSONArray a) {

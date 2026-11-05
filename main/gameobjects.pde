@@ -1,22 +1,17 @@
-// Base class for everything that lives in the world and gets depth-sorted.
+// Base class for everything that lives in the world.
 abstract class GameObject {
   PVector pos;
 
-  // World-space bounding box, used for draw ordering
+  // World-space bounding box
   abstract PVector minB();
   abstract PVector maxB();
 
-  abstract void display(float t);
+  // Drawn in world coordinates (y up), inside applyCamera()
+  abstract void display();
 
   // Box (min, max) vs this object. Touching is not overlapping.
   // Every subclass must decide; non-solid objects just return false.
   abstract boolean collides(PVector min, PVector max, boolean is3D);
-
-  // Rough far-to-near key, only used to break ties the depth rule leaves open
-  float depthKey() {
-    PVector a = minB(), b = maxB();
-    return -(a.x + b.x) * 0.5 + (a.z + b.z) * 0.5 + (a.y + b.y) * 0.5;
-  }
 }
 
 class Platform extends GameObject {
@@ -49,8 +44,9 @@ class Platform extends GameObject {
     return is3D ? (inXY && inZ) : inXY;
   }
 
-  void display(float t) {
-    drawBox(pos.x, pos.y, pos.z, pos.x + size.x, pos.y + size.y, pos.z + size.z, left, front, top, t);
+  void display() {
+    noLights();  // flat colors per face
+    drawBox(pos.x, pos.y, pos.z, pos.x + size.x, pos.y + size.y, pos.z + size.z, left, front, top);
   }
 }
 
@@ -88,36 +84,39 @@ class Dot extends GameObject {
     return distSq < radius * radius;
   }
 
-  void display(float t) {
-    PVector s = worldToScreen(center.x, center.y, center.z, t);
-    noStroke();
-    fill(255, 200, 60);
-    circle(s.x, s.y, radius * 2 * worldUnits);
+  void display() {
+    drawBall(center, radius, color(255, 200, 60));
   }
 }
 
-// Draws the three camera-facing faces of the box (x0, y0, z0) to (x1, y1, z1)
+// Draws the three faces the camera can ever see (-x, +z, top) of the box (x0, y0, z0) to (x1, y1, z1).
+// The other three always face away from the camera, and the depth buffer would hide them anyway.
 void drawBox(float x0, float y0, float z0, float x1, float y1, float z1,
-             color left, color front, color top, float t) {
-  // Left face (-x), only visible in iso
-  fill(left);
-  quadFace(x0, y0, z0,  x0, y1, z0,  x0, y1, z1,  x0, y0, z1,  t);
-
-  // Front face (+z), the face you see in side view
-  fill(front);
-  quadFace(x0, y0, z1,  x0, y1, z1,  x1, y1, z1,  x1, y0, z1,  t);
-
-  // Top face, only visible in iso
-  fill(top);
-  quadFace(x0, y1, z0,  x1, y1, z0,  x1, y1, z1,  x0, y1, z1,  t);
+             color left, color front, color top) {
+  beginShape(QUADS);
+  fill(left);   // -x, only visible in iso
+  vertex(x0, y0, z0);  vertex(x0, y1, z0);  vertex(x0, y1, z1);  vertex(x0, y0, z1);
+  fill(front);  // +z, the face you see in side view
+  vertex(x0, y0, z1);  vertex(x0, y1, z1);  vertex(x1, y1, z1);  vertex(x1, y0, z1);
+  fill(top);    // +y, only visible in iso
+  vertex(x0, y1, z0);  vertex(x1, y1, z0);  vertex(x1, y1, z1);  vertex(x0, y1, z1);
+  endShape();
 }
 
-void quadFace(float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float dx, float dy, float dz, float t) {
-  PVector a = worldToScreen(ax, ay, az, t);
-  PVector b = worldToScreen(bx, by, bz, t);
-  PVector c = worldToScreen(cx, cy, cz, t);
-  PVector d = worldToScreen(dx, dy, dz, t);
-  quad(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+// Lit sphere. The light is set here (in world space), so balls look round
+// while boxes keep their flat face colors.
+void drawBall(PVector c, float r, color col) {
+  ambientLight(120, 120, 120);
+  // Light from above, in front and to the right. The y flip in applyCamera mirrors
+  // the world, which reverses Processing's lighting, so the direction is given
+  // negated: (0.4, 1, 0.6) here really means traveling (-0.4, -1, -0.6).
+  directionalLight(150, 150, 150, 0.4, 1, 0.6);
+  fill(col);
+  pushMatrix();
+  translate(c.x, c.y, c.z);
+  sphere(r);
+  popMatrix();
+  noLights();
 }
 
 // PVector component by index (0 = x, 1 = y, 2 = z), so axis code can be written once
@@ -135,7 +134,8 @@ void setAxis(PVector v, int axis, float value) {
 // whose bottom is at bottomY. Ground is found under the whole square footprint
 // (matching the hitbox), so the shadow stays while standing on an edge.
 // Shrinks and fades as the ball rises, and fades in with the view blend
-// (in side view the ground has no visible top, so there is nothing to draw on).
+// (in side view the ground is seen edge-on, so there is nothing to draw on).
+// Must be drawn after everything opaque, since it is translucent.
 void drawShadow(float x, float bottomY, float z, float r, float t) {
   if (t < 0.01) return;
   float ground = level.groundBelow(x - r, x + r, bottomY, z - r, z + r);
@@ -146,15 +146,17 @@ void drawShadow(float x, float bottomY, float z, float r, float t) {
   float sr = r * (0.4 + 0.6 * scale);    // never shrinks below 40%
   float alpha = 110 * scale * t;
 
+  noLights();
   noStroke();
   fill(0, alpha);
+  hint(DISABLE_DEPTH_MASK);  // still hidden behind things, but does not hide anything itself
   beginShape();
   int n = 24;
+  float y = ground + 0.01;   // lifted a hair so it does not z-fight with the ground
   for (int i = 0; i < n; i++) {
     float a = TWO_PI * i / n;
-    // project a circle lying flat on the ground, so it is correct at any view blend
-    PVector p = worldToScreen(x + sr * cos(a), ground, z + sr * sin(a), t);
-    vertex(p.x, p.y);
+    vertex(x + sr * cos(a), y, z + sr * sin(a));
   }
   endShape(CLOSE);
+  hint(ENABLE_DEPTH_MASK);
 }

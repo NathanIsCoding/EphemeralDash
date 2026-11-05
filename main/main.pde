@@ -1,5 +1,5 @@
 Player player;
-PVector cam = new PVector();
+PVector cam = new PVector();  // world-space point the camera looks at
 Level level;
 int lastMillis;
 boolean spaceDown = false;
@@ -14,10 +14,18 @@ int state = MAIN_MENU;
 PauseMenu pauseMenu = new PauseMenu();
 MainMenu mainMenu = new MainMenu();
 
-float worldUnits = 40;
+float worldUnits = 40;  // pixels per world unit in side view
+
+// Camera angles at full iso (side view is 0 for both). Pitch 30 degrees gives
+// the same 2:1 depth look as the old hand-made iso projection.
+final float ISO_YAW = QUARTER_PI;
+final float ISO_PITCH = radians(30);
+final float ISO_ZOOM = 0.7071;  // iso shows a bit more of the level, like before
 
 void setup() {
-  size(1000, 800);
+  size(1000, 800, P3D);
+  smooth(8);
+  sphereDetail(24);
   level = new Level("level1.json");
   resetPlayer();
   lastMillis = millis();
@@ -26,7 +34,7 @@ void setup() {
 // put the player back at the level spawn and snap the camera to them
 void resetPlayer() {
   player = new Player(level.spawn.copy());
-  cam = player.project();
+  cam = player.center();
 }
 
 void draw() {
@@ -36,22 +44,31 @@ void draw() {
 
   if (state == PLAYING) {
     player.update(dt);
-    cam.lerp(player.project(), 1 - exp(-dt * 8));
+    cam.lerp(player.center(), 1 - exp(-dt * 8));
   }
 
   background(20);
+  // Orthographic, so the side view stays perfectly flat. With the default camera
+  // this also maps z = 0 straight to pixels, so the menus draw like plain 2D.
+  // The huge near/far range keeps the whole level inside the depth range.
+  ortho(-width / 2, width / 2, -height / 2, height / 2, -10000, 10000);
 
   if (state == MAIN_MENU) {
+    hint(DISABLE_DEPTH_TEST);
     mainMenu.display();
     return;
   }
 
   // the world is drawn while playing and paused, so it stays visible (frozen) behind the pause menu
+  hint(ENABLE_DEPTH_TEST);
   pushMatrix();
-  translate(width / 2 - round(cam.x), height / 2 - round(cam.y));
-  level.display(player.shiftT, player);  // draws the player in depth order
+  applyCamera(player.shiftT);
+  level.display(player);
   popMatrix();
 
+  // screen-space overlays go on top of the world, so they ignore depth
+  noLights();
+  hint(DISABLE_DEPTH_TEST);
   if (state == PAUSED) pauseMenu.display();
 }
 
@@ -117,12 +134,14 @@ void keyReleased() {
   if (key == 'r' || key == 'R') rDown = false;
 }
 
-// t: 0 = side view, 1 = isometric
-PVector worldToScreen(float x, float y, float z, float t) {
-  PVector side = new PVector(x * worldUnits, -y * worldUnits);
-  PVector iso = new PVector(
-    (x + z) * worldUnits * 0.5,
-    (z - x) * worldUnits * 0.25 - y * worldUnits * 0.5
-  );
-  return PVector.lerp(side, iso, t);
+// Sets up the world transform. t: 0 = side view, 1 = iso.
+// Afterwards you draw in world units with y up, centered on cam.
+// The view shift is a real camera rotation: yaw around y, then tilt down.
+void applyCamera(float t) {
+  float s = worldUnits * lerp(1, ISO_ZOOM, t);
+  translate(width / 2, height / 2, 0);
+  scale(s, -s, s);           // world units to pixels, and flip y so +y is up
+  rotateX(ISO_PITCH * t);    // tilt to look down on the tops
+  rotateY(ISO_YAW * t);      // swing around so the -x faces show
+  translate(-cam.x, -cam.y, -cam.z);
 }
