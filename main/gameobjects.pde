@@ -8,8 +8,9 @@ abstract class GameObject {
 
   abstract void display(float t);
 
-  // Sphere vs this object. Every subclass must decide; non-solid objects just return false.
-  abstract boolean collides(PVector center, float r, boolean is3D);
+  // Box (min, max) vs this object. Touching is not overlapping.
+  // Every subclass must decide; non-solid objects just return false.
+  abstract boolean collides(PVector min, PVector max, boolean is3D);
 
   // Rough far-to-near key, only used to break ties the depth rule leaves open
   float depthKey() {
@@ -32,26 +33,12 @@ class Platform extends GameObject {
   PVector minB() { return pos; }
   PVector maxB() { return PVector.add(pos, size); }
 
-  boolean collides(PVector center, float r, boolean is3D) {
-    float cx = constrain(center.x, pos.x, pos.x + size.x);
-    float cy = constrain(center.y, pos.y, pos.y + size.y);
-    float dx = center.x - cx;
-    float dy = center.y - cy;
-    float distSq = dx*dx + dy*dy;
-
-    if (is3D) {
-      float cz = constrain(center.z, pos.z, pos.z + size.z);
-      float dz = center.z - cz;
-      distSq += dz*dz;
-    }
-    return distSq <= r*r;
-  }
-
-  // Box vs box
-  boolean overlaps(PVector otherPos, PVector otherSize, boolean is3D) {
-    boolean xHit = otherPos.x < pos.x + size.x && otherPos.x + otherSize.x > pos.x;
-    boolean yHit = otherPos.y < pos.y + size.y && otherPos.y + otherSize.y > pos.y;
-    boolean zHit = otherPos.z < pos.z + size.z && otherPos.z + otherSize.z > pos.z;
+  // Box vs box. Strict comparisons, so boxes sharing a face do not collide.
+  // In side view z is ignored.
+  boolean collides(PVector min, PVector max, boolean is3D) {
+    boolean xHit = min.x < pos.x + size.x && max.x > pos.x;
+    boolean yHit = min.y < pos.y + size.y && max.y > pos.y;
+    boolean zHit = min.z < pos.z + size.z && max.z > pos.z;
     return is3D ? (xHit && yHit && zHit) : (xHit && yHit);
   }
 
@@ -63,29 +50,7 @@ class Platform extends GameObject {
   }
 
   void display(float t) {
-    float x0 = pos.x, x1 = pos.x + size.x;
-    float y0 = pos.y, y1 = pos.y + size.y;
-    float z0 = pos.z, z1 = pos.z + size.z;
-
-    // Left face (-x), only visible in iso
-    fill(left);
-    quadFace(x0, y0, z0,  x0, y1, z0,  x0, y1, z1,  x0, y0, z1,  t);
-
-    // Front face (+z), the face you see in side view
-    fill(front);
-    quadFace(x0, y0, z1,  x0, y1, z1,  x1, y1, z1,  x1, y0, z1,  t);
-
-    // Top face, only visible in iso
-    fill(top);
-    quadFace(x0, y1, z0,  x1, y1, z0,  x1, y1, z1,  x0, y1, z1,  t);
-  }
-
-  void quadFace(float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float dx, float dy, float dz, float t) {
-    PVector a = worldToScreen(ax, ay, az, t);
-    PVector b = worldToScreen(bx, by, bz, t);
-    PVector c = worldToScreen(cx, cy, cz, t);
-    PVector d = worldToScreen(dx, dy, dz, t);
-    quad(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+    drawBox(pos.x, pos.y, pos.z, pos.x + size.x, pos.y + size.y, pos.z + size.z, left, front, top, t);
   }
 }
 
@@ -111,12 +76,16 @@ class Dot extends GameObject {
   PVector minB() { return new PVector(center.x - radius, center.y - radius, center.z - radius); }
   PVector maxB() { return new PVector(center.x + radius, center.y + radius, center.z + radius); }
 
-  // Circle/sphere vs dot
-  boolean collides(PVector p, float otherRadius, boolean is3D) {
-    float d = is3D
-      ? center.dist(p)
-      : dist(center.x, center.y, p.x, p.y);   // ignore z in 2D
-    return d <= radius + otherRadius;
+  // Sphere vs box: distance from the dot's center to the closest point of the box
+  boolean collides(PVector min, PVector max, boolean is3D) {
+    float dx = center.x - constrain(center.x, min.x, max.x);
+    float dy = center.y - constrain(center.y, min.y, max.y);
+    float distSq = dx*dx + dy*dy;
+    if (is3D) {
+      float dz = center.z - constrain(center.z, min.z, max.z);
+      distSq += dz*dz;
+    }
+    return distSq < radius * radius;
   }
 
   void display(float t) {
@@ -127,12 +96,49 @@ class Dot extends GameObject {
   }
 }
 
-// Soft shadow on the ground under a ball whose bottom is at (x, bottomY, z).
+// Draws the three camera-facing faces of the box (x0, y0, z0) to (x1, y1, z1)
+void drawBox(float x0, float y0, float z0, float x1, float y1, float z1,
+             color left, color front, color top, float t) {
+  // Left face (-x), only visible in iso
+  fill(left);
+  quadFace(x0, y0, z0,  x0, y1, z0,  x0, y1, z1,  x0, y0, z1,  t);
+
+  // Front face (+z), the face you see in side view
+  fill(front);
+  quadFace(x0, y0, z1,  x0, y1, z1,  x1, y1, z1,  x1, y0, z1,  t);
+
+  // Top face, only visible in iso
+  fill(top);
+  quadFace(x0, y1, z0,  x1, y1, z0,  x1, y1, z1,  x0, y1, z1,  t);
+}
+
+void quadFace(float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float dx, float dy, float dz, float t) {
+  PVector a = worldToScreen(ax, ay, az, t);
+  PVector b = worldToScreen(bx, by, bz, t);
+  PVector c = worldToScreen(cx, cy, cz, t);
+  PVector d = worldToScreen(dx, dy, dz, t);
+  quad(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+}
+
+// PVector component by index (0 = x, 1 = y, 2 = z), so axis code can be written once
+float getAxis(PVector v, int axis) {
+  return axis == 0 ? v.x : axis == 1 ? v.y : v.z;
+}
+
+void setAxis(PVector v, int axis, float value) {
+  if (axis == 0) v.x = value;
+  else if (axis == 1) v.y = value;
+  else v.z = value;
+}
+
+// Soft round shadow on the ground under a ball centered over (x, z) with radius r,
+// whose bottom is at bottomY. Ground is found under the whole square footprint
+// (matching the hitbox), so the shadow stays while standing on an edge.
 // Shrinks and fades as the ball rises, and fades in with the view blend
 // (in side view the ground has no visible top, so there is nothing to draw on).
 void drawShadow(float x, float bottomY, float z, float r, float t) {
   if (t < 0.01) return;
-  float ground = level.groundBelow(x, bottomY, z);
+  float ground = level.groundBelow(x - r, x + r, bottomY, z - r, z + r);
   if (Float.isNaN(ground)) return;
 
   float h = bottomY - ground;
@@ -152,4 +158,3 @@ void drawShadow(float x, float bottomY, float z, float r, float t) {
   }
   endShape(CLOSE);
 }
-

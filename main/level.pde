@@ -36,22 +36,32 @@ class Level {
     }
   }
 
-  boolean collides(PVector center, float r, boolean is3D) {
+  boolean collides(PVector min, PVector max, boolean is3D) {
     for (GameObject o : objects) {
-      if (o.collides(center, r, is3D)) return true;
+      if (o.collides(min, max, is3D)) return true;
     }
     return false;
   }
 
-  // Height of the highest box top directly under (x, z) at or below y, or NaN if none
-  float groundBelow(float x, float y, float z) {
+  // Every object the box overlaps
+  ArrayList<GameObject> hits(PVector min, PVector max, boolean is3D) {
+    ArrayList<GameObject> out = new ArrayList<GameObject>();
+    for (GameObject o : objects) {
+      if (o.collides(min, max, is3D)) out.add(o);
+    }
+    return out;
+  }
+
+  // Height of the highest box top under the footprint [x0, x1] x [z0, z1]
+  // at or below y, or NaN if none
+  float groundBelow(float x0, float x1, float y, float z0, float z1) {
     float best = Float.NaN;
     for (GameObject o : objects) {
       if (!(o instanceof Platform)) continue;
       Platform p = (Platform) o;
       float top = p.pos.y + p.size.y;
-      boolean over = x >= p.pos.x && x <= p.pos.x + p.size.x
-                  && z >= p.pos.z && z <= p.pos.z + p.size.z;
+      boolean over = x0 < p.pos.x + p.size.x && x1 > p.pos.x
+                  && z0 < p.pos.z + p.size.z && z1 > p.pos.z;
       if (over && top <= y + 0.01 && (Float.isNaN(best) || top > best)) best = top;
     }
     return best;
@@ -65,9 +75,8 @@ class Level {
   }
 }
 
-// Overlap allowed when deciding draw order. The player's collision sphere is
-// slightly smaller than its drawn size, so it can rest a little inside a surface.
-// Must stay well below the thinnest object (0.5) or it would create false orderings.
+// Overlap allowed when deciding draw order, so objects that touch (or are a hair
+// inside each other from float error) still get a clear order.
 final float SORT_EPS = 0.1;
 
 // true if a must be drawn before b (a is fully behind b on some axis)

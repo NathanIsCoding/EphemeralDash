@@ -1,7 +1,12 @@
 class Player extends GameObject {
-  // pos.y = feet
+  // pos = center of the bottom face (x, z centered, y = feet)
   PVector velocity;
-  float radius = 0.5;  // world units
+  float size = 1;  // cube edge length, world units
+  float half = size / 2;
+
+  // gap left when snapping against a surface, so float error does not count as overlap
+  final float SKIN = 0.0001;
+
 
   float maxSpeed = 15;  // horizontal safety cap, world units per second
   float accel = 150;  // world units per second squared
@@ -95,20 +100,16 @@ class Player extends GameObject {
     // pos.add(PVector.mult(velocity, dt));
     PVector step = PVector.mult(velocity, dt);
 
-    pos.x += step.x;
-    if (hits()) { pos.x -= step.x; velocity.x = 0; }
+    if (moveAxis(0, step.x)) velocity.x = 0;
 
-    pos.y += step.y;
     isGrounded = false;
-    if (hits()) {
-      pos.y -= step.y;
+    if (moveAxis(1, step.y)) {
       if (step.y < 0) isGrounded = true;  // landed (hitting a ceiling does not count)
       velocity.y = 0;
     }
 
     if (isIso) {
-      pos.z += step.z;
-      if (hits()) { pos.z -= step.z; velocity.z = 0; }
+      if (moveAxis(2, step.z)) velocity.z = 0;
     }
 
     // 5. View blend
@@ -116,24 +117,56 @@ class Player extends GameObject {
     shiftT += (target - shiftT) * min(1, dt * 15);
   }
 
-  PVector project() {
-    // draw from the center of the circle, not the feet
-    return worldToScreen(pos.x, pos.y + radius, pos.z, shiftT);
+  // Moves along one axis (0 = x, 1 = y, 2 = z). If that overlaps something,
+  // the player is snapped flush against the nearest blocking face instead.
+  // Returns true if the move was blocked.
+  boolean moveAxis(int axis, float d) {
+    if (d == 0) return false;
+    float old = getAxis(pos, axis);
+    setAxis(pos, axis, old + d);
+
+    ArrayList<GameObject> hit = level.hits(minB(), maxB(), isIso);
+    if (hit.isEmpty()) return false;
+
+    // player box spans [pos + lo, pos + hi] on this axis
+    float lo = axis == 1 ? 0 : -half;
+    float hi = axis == 1 ? size : half;
+
+    float target = old + d;
+    for (GameObject o : hit) {
+      if (!(o instanceof Platform)) { target = old; break; }  // not a box, so just stay put
+      float faceMin = getAxis(o.minB(), axis);
+      float faceMax = getAxis(o.maxB(), axis);
+      if (d > 0) target = min(target, faceMin - hi - SKIN);
+      else       target = max(target, faceMax - lo + SKIN);
+    }
+    // never get pushed backwards past where we started
+    target = d > 0 ? max(target, old) : min(target, old);
+    setAxis(pos, axis, target);
+
+    if (hits()) setAxis(pos, axis, old);  // safety net
+    return true;
   }
 
-  PVector minB() { return new PVector(pos.x - radius, pos.y, pos.z - radius); }
-  PVector maxB() { return new PVector(pos.x + radius, pos.y + 2 * radius, pos.z + radius); }
+  PVector project() {
+    // follow the center of the cube, not the feet
+    return worldToScreen(pos.x, pos.y + half, pos.z, shiftT);
+  }
+
+  PVector minB() { return new PVector(pos.x - half, pos.y, pos.z - half); }
+  PVector maxB() { return new PVector(pos.x + half, pos.y + size, pos.z + half); }
 
   void display(float t) {
-    drawShadow(pos.x, pos.y, pos.z, radius, t);
-    PVector p = worldToScreen(pos.x, pos.y + radius, pos.z, t);
+    drawShadow(pos.x, pos.y, pos.z, half, t);
+    // drawn as a ball inscribed in the hitbox (collision still uses the box)
+    PVector p = worldToScreen(pos.x, pos.y + half, pos.z, t);
     noStroke();
     fill(255, 80, 80);
-    circle(p.x, p.y, radius * 2 * worldUnits);
+    circle(p.x, p.y, size * worldUnits);
   }
 
   // The player is not in level.objects, so nothing tests against it (it uses hits() below instead)
-  boolean collides(PVector center, float r, boolean is3D) {
+  boolean collides(PVector min, PVector max, boolean is3D) {
     return false;
   }
 
@@ -143,7 +176,6 @@ class Player extends GameObject {
 
   // Collision check as if in the given view (z is ignored in side view)
   boolean hits(boolean is3D) {
-    PVector center = new PVector(pos.x, pos.y + radius, pos.z);
-    return level.collides(center, (radius - 0.05), is3D);
+    return level.collides(minB(), maxB(), is3D);
   }
 }
