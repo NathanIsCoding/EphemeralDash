@@ -14,6 +14,31 @@ final float ROTATE_SPEED = 2;    // Q/E turn speed, radians per second
 final float ORBIT_SPEED = 0.01;  // middle-drag turn, radians per pixel
 final float MAX_PITCH = radians(89);  // stop just short of straight up or down
 
+// toolbar layout (pixels)
+final float TB_X = 12, TB_Y = 12;
+final float TB_BUTTON = 40, TB_GAP = 6, TB_SEP = 18, TB_PAD = 6;
+// "|" is a separator between groups
+final String[] TOOLS = { "platform", "cube", "dot", "|", "view", "save", "help", "exit" };
+final String[] HELP_LINES = {
+  "Left click: select, or click a handle to add",
+  "Right click / Delete: remove",
+  "WASD / right drag: pan",
+  "Wheel: zoom",
+  "Q/E / middle drag: rotate",
+};
+
+// Toolbar icon images in data/icons/ (Material Symbols, 24px), keyed by icon name.
+// The brush icons stay procedural so they always match BLOCK_COLORS.
+final String ICON_SIZE = "24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24";
+final String[][] ICON_FILES = {
+  { "view_iso",  "deployed_code" },
+  { "view_side", "square" },
+  { "save",      "save" },
+  { "help",      "help" },
+  { "exit",      "logout" },
+};
+final float ICON_DRAW = 24;  // pixels; matches the images, so they are not resampled
+
 class Editor {
   String file;
   String name;
@@ -35,9 +60,15 @@ class Editor {
 
   String message = "";
   int messageUntil = 0;
+  boolean showHelp = false;
+
+  HashMap<String, PImage> icons = new HashMap<String, PImage>();
 
   Editor(String file) {
     this.file = file;
+    for (String[] f : ICON_FILES) {
+      icons.put(f[0], loadImage("icons/" + f[1] + "_" + ICON_SIZE + ".png"));
+    }
     load();
     cam = spawn.copy();
   }
@@ -218,10 +249,12 @@ class Editor {
     cam.add(PVector.sub(before, view().fromScreen(sx, sy)));
   }
 
-  // Turning only makes sense in the iso view (side view flattens the angles away)
+  // Turning only makes sense in the iso view (side view flattens the angles away).
+  // OrthoView.apply() flips y (scale(s, -s, s)), which mirrors the handedness of
+  // rotateY, so yaw is subtracted to make positive dYaw turn the view the intuitive way.
   void orbit(float dYaw, float dPitch) {
     isIso = true;
-    yaw += dYaw;
+    yaw -= dYaw;
     pitch = constrain(pitch + dPitch, -MAX_PITCH, MAX_PITCH);
   }
 
@@ -246,7 +279,7 @@ class Editor {
   void display() {
     OrthoView v = view();
     PVector eye = v.eye();
-    int hover = handleAt(mouseX, mouseY);
+    int hover = overUI(mouseX, mouseY) ? -1 : handleAt(mouseX, mouseY);
 
     // the level, in world space
     hint(ENABLE_DEPTH_TEST);
@@ -333,20 +366,189 @@ class Editor {
     circle(s.x, s.y, v.s);
   }
 
-  void drawHud() {
-    noStroke();
-    fill(255);
-    textAlign(LEFT, TOP);
-    textSize(16);
-    text("Level Creator - " + file, 12, 12);
-    text("Brush: " + BLOCK_NAMES[brush] + "   [1] Platform  [2] Cube  [3] Dot", 12, 34);
-    text("Left click: select, or click a handle to add   Right click / Delete: remove", 12, 56);
-    text("WASD / right drag: pan   Wheel: zoom   Q/E / middle drag: rotate   R: switch view", 12, 78);
-    text("Enter: save   Esc: save and exit   Zoom: " + nf(zoom, 1, 2) + "x", 12, 100);
-    if (millis() < messageUntil) {
-      fill(255, 200, 60);
-      text(message, 12, 126);
+  // toolbar
+
+  // Left edge of each toolbar entry; separators get the TB_SEP width
+  float[] toolXs() {
+    float[] xs = new float[TOOLS.length];
+    float x = TB_X + TB_PAD;
+    for (int i = 0; i < TOOLS.length; i++) {
+      xs[i] = x;
+      x += (TOOLS[i].equals("|") ? TB_SEP : TB_BUTTON) + TB_GAP;
     }
+    return xs;
+  }
+
+  float toolbarWidth() {
+    float[] xs = toolXs();
+    return xs[xs.length - 1] + TB_BUTTON + TB_PAD - TB_X;
+  }
+
+  float toolbarHeight() {
+    return TB_BUTTON + TB_PAD * 2;
+  }
+
+  // Index into TOOLS of the button under the mouse, or -1
+  int toolAt(float mx, float my) {
+    float[] xs = toolXs();
+    for (int i = 0; i < TOOLS.length; i++) {
+      if (TOOLS[i].equals("|")) continue;
+      if (inRect(mx, my, xs[i], TB_Y + TB_PAD, TB_BUTTON, TB_BUTTON)) return i;
+    }
+    return -1;
+  }
+
+  // true over the toolbar or the help panel, where clicks should not reach the level
+  boolean overUI(float mx, float my) {
+    if (inRect(mx, my, TB_X, TB_Y, toolbarWidth(), toolbarHeight())) return true;
+    if (showHelp) {
+      float[] r = helpRect();
+      if (inRect(mx, my, r[0], r[1], r[2], r[3])) return true;
+    }
+    return false;
+  }
+
+  boolean inRect(float mx, float my, float x, float y, float w, float h) {
+    return mx >= x && mx < x + w && my >= y && my < y + h;
+  }
+
+  void useTool(String id) {
+    if (id.equals("platform")) brush = BLOCK_PLATFORM;
+    else if (id.equals("cube")) brush = BLOCK_CUBE;
+    else if (id.equals("dot")) brush = BLOCK_DOT;
+    else if (id.equals("view")) isIso = !isIso;
+    else if (id.equals("save")) save();
+    else if (id.equals("help")) showHelp = !showHelp;
+    else if (id.equals("exit")) exitEditor();
+  }
+
+  boolean toolActive(String id) {
+    if (id.equals("platform")) return brush == BLOCK_PLATFORM;
+    if (id.equals("cube")) return brush == BLOCK_CUBE;
+    if (id.equals("dot")) return brush == BLOCK_DOT;
+    if (id.equals("help")) return showHelp;
+    return false;
+  }
+
+  String toolTip(String id) {
+    if (id.equals("platform")) return "Platform brush  [1]";
+    if (id.equals("cube")) return "Cube brush  [2]";
+    if (id.equals("dot")) return "Dot brush  [3]";
+    if (id.equals("view")) return (isIso ? "Switch to side view" : "Switch to iso view") + "  [R]";
+    if (id.equals("save")) return "Save  [Enter]";
+    if (id.equals("help")) return "Controls";
+    if (id.equals("exit")) return "Save and exit  [Esc]";
+    return "";
+  }
+
+  void drawHud() {
+    float[] xs = toolXs();
+    float by = TB_Y + TB_PAD;
+    int hoverTool = toolAt(mouseX, mouseY);
+
+    // bar background
+    noStroke();
+    fill(0, 160);
+    rect(TB_X, TB_Y, toolbarWidth(), toolbarHeight(), 8);
+
+    for (int i = 0; i < TOOLS.length; i++) {
+      String id = TOOLS[i];
+      if (id.equals("|")) {
+        stroke(255, 60);
+        strokeWeight(1);
+        line(xs[i] + TB_SEP / 2, by + 6, xs[i] + TB_SEP / 2, by + TB_BUTTON - 6);
+        continue;
+      }
+      boolean active = toolActive(id);
+      noStroke();
+      fill(active ? color(255, 200, 60, 70) : i == hoverTool ? color(255, 40) : color(255, 12));
+      rect(xs[i], by, TB_BUTTON, TB_BUTTON, 6);
+      if (active) {
+        noFill();
+        stroke(255, 200, 60);
+        strokeWeight(2);
+        rect(xs[i], by, TB_BUTTON, TB_BUTTON, 6);
+      }
+      drawToolIcon(id, xs[i] + TB_BUTTON / 2, by + TB_BUTTON / 2);
+    }
+
+    if (showHelp) drawHelp();
+    if (hoverTool >= 0) drawTooltip(toolTip(TOOLS[hoverTool]), xs[hoverTool], TB_Y + toolbarHeight() + 8);
+    if (millis() < messageUntil) {
+      textSize(14);
+      textAlign(LEFT, CENTER);
+      fill(255, 200, 60);
+      text(message, TB_X + toolbarWidth() + 12, TB_Y + toolbarHeight() / 2);
+    }
+  }
+
+  void drawTooltip(String tip, float x, float y) {
+    textSize(13);
+    textAlign(LEFT, TOP);
+    float w = textWidth(tip) + 16;
+    noStroke();
+    fill(0, 220);
+    rect(x, y, w, 24, 5);
+    fill(255);
+    text(tip, x + 8, y + 5);
+  }
+
+  // x, y, w, h of the help panel, under the right end of the toolbar
+  float[] helpRect() {
+    float w = 330, h = HELP_LINES.length * 20 + 36;
+    return new float[] { TB_X + toolbarWidth() - w, TB_Y + toolbarHeight() + 8, w, h };
+  }
+
+  void drawHelp() {
+    float[] r = helpRect();
+    noStroke();
+    fill(0, 190);
+    rect(r[0], r[1], r[2], r[3], 8);
+    textAlign(LEFT, TOP);
+    textSize(13);
+    fill(255);
+    for (int i = 0; i < HELP_LINES.length; i++) text(HELP_LINES[i], r[0] + 12, r[1] + 10 + i * 20);
+    fill(170);
+    text(file + "   zoom " + nf(zoom, 1, 2) + "x", r[0] + 12, r[1] + 14 + HELP_LINES.length * 20);
+  }
+
+  void drawToolIcon(String id, float cx, float cy) {
+    if (id.equals("platform")) {
+      drawCubeIcon(cx, cy, 12, BLOCK_COLORS[BLOCK_PLATFORM]);
+    } else if (id.equals("cube")) {
+      drawCubeIcon(cx, cy, 12, BLOCK_COLORS[BLOCK_CUBE]);
+    } else if (id.equals("dot")) {
+      noStroke();
+      fill(255, 200, 60);
+      circle(cx, cy, 14);
+    } else if (id.equals("view")) {
+      // shows the view you are in: a cube for iso, a flat square for side
+      drawIcon(isIso ? "view_iso" : "view_side", cx, cy);
+    } else {
+      drawIcon(id, cx, cy);
+    }
+  }
+
+  // Draws a loaded icon image centred on (cx, cy)
+  void drawIcon(String name, float cx, float cy) {
+    PImage img = icons.get(name);
+    if (img == null) return;
+    imageMode(CENTER);
+    noTint();
+    image(img, cx, cy, ICON_DRAW, ICON_DRAW);
+    imageMode(CORNER);
+  }
+
+  // A small iso cube made of three shaded rhombi, using a block type's face colours
+  void drawCubeIcon(float cx, float cy, float r, int[] cols) {
+    float h = r * 0.866;
+    noStroke();
+    fill(cols[2]);  // top
+    quad(cx, cy - r, cx + h, cy - r / 2, cx, cy, cx - h, cy - r / 2);
+    fill(cols[0]);  // left
+    quad(cx - h, cy - r / 2, cx, cy, cx, cy + r, cx - h, cy + r / 2);
+    fill(cols[1]);  // right
+    quad(cx + h, cy - r / 2, cx, cy, cx, cy + r, cx + h, cy + r / 2);
   }
 
   void flash(String msg) {
@@ -357,6 +559,13 @@ class Editor {
   // input
 
   void mousePressed() {
+    // the toolbar and help panel swallow clicks so they never edit the level behind them
+    if (overUI(mouseX, mouseY)) {
+      int t = toolAt(mouseX, mouseY);
+      if (mouseButton == LEFT && t >= 0) useTool(TOOLS[t]);
+      return;
+    }
+
     // Right drag pans and middle drag orbits. A right click that never moves removes on release.
     if (mouseButton == RIGHT || mouseButton == CENTER) {
       dragging = true;

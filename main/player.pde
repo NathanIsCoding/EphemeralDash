@@ -10,7 +10,7 @@ class Player extends GameObject {
 
   float maxSpeed = 15;  // horizontal safety cap, world units per second
   float accel = 150;  // world units per second squared
-  float friction = 6;  // higher = stops faster
+  float friction = 12;  // higher = stops faster
   float gravity = 30;  // world units per second squared
   float jumpHeight = 2.2;  // world units (peak above take-off)
   float maxFall = 20;  // terminal velocity, world units per second
@@ -61,15 +61,13 @@ class Player extends GameObject {
     // 1. Build the input vector from the keys
     PVector input = new PVector();
 
-    if(!isIso) {
-      if (right) input.x += 1;
-      if (left) input.x -= 1;
-    } else { 
-      // depth only exists in iso view
-      if (fwd) input.x += 1;
-      if (back) input.x -= 1;
-      if (right) input.z += 1;
-      if (left) input.z -= 1;
+    // A/D always move along x, so holding one keeps the same heading through a view shift.
+    // W/S add depth, which only exists in iso view.
+    if (right) input.x += 1;
+    if (left) input.x -= 1;
+    if (isIso) {
+      if (fwd) input.z -= 1;
+      if (back) input.z += 1; 
     }
 
     // ensures diagonals are not faster

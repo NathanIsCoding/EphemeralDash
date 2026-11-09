@@ -92,13 +92,7 @@ void keyPressed() {
     key = 0;  // stop Processing from closing the sketch
     if (state == PLAYING) state = PAUSED;
     else if (state == PAUSED) state = PLAYING;
-    else if (state == EDITOR) {
-      // save, then reload so "Play" uses the edited level
-      editor.save();
-      level = new Level(levelFile);
-      resetPlayer();
-      state = MAIN_MENU;
-    }
+    else if (state == EDITOR) exitEditor();
     return;
   }
 
@@ -151,6 +145,14 @@ void keyPressed() {
       exit();
     }
   }
+}
+
+// Save the edited level, then reload it so "Play" uses it
+void exitEditor() {
+  editor.save();
+  level = new Level(levelFile);
+  resetPlayer();
+  state = MAIN_MENU;
 }
 
 void keyReleased() {
