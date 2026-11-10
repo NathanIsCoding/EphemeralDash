@@ -18,10 +18,13 @@ final float MAX_PITCH = radians(89);  // stop just short of straight up or down
 final float TB_X = 12, TB_Y = 12;
 final float TB_BUTTON = 40, TB_GAP = 6, TB_SEP = 18, TB_PAD = 6;
 // "|" is a separator between groups
-final String[] TOOLS = { "platform", "cube", "dot", "spike", "|", "view", "save", "help", "exit" };
+final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "|", "spawn", "goal", "|", "view", "save", "help", "exit" };
 final String[] HELP_LINES = {
-  "Left click: select, or click a handle to add",
-  "Right click / Delete: remove",
+  "Build [B]: click a block, then a handle to add",
+  "Select [V]: drag between blocks to box-select, Shift adds",
+  "Fill [F]: drag across a block face to place a line or plane",
+  "Spawn [P] / Goal [G]: click a block to place it on top",
+  "Right click / Delete: remove (the whole selection if any)",
   "WASD / right drag: pan",
   "Wheel: zoom",
   "Q/E / middle drag: rotate",
@@ -31,6 +34,9 @@ final String[] HELP_LINES = {
 // The brush icons stay procedural so they always match BLOCK_COLORS.
 final String ICON_SIZE = "24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24";
 final String[][] ICON_FILES = {
+  { "build",     "add" },
+  { "select",    "select" },
+  { "fill",      "grid_4x4" },
   { "view_iso",  "deployed_code" },
   { "view_side", "square" },
   { "save",      "save" },
@@ -39,14 +45,31 @@ final String[][] ICON_FILES = {
 };
 final float ICON_DRAW = 24;  // pixels; matches the images, so they are not resampled
 
+final int TOOL_BUILD = 0, TOOL_SELECT = 1, TOOL_FILL = 2, TOOL_SPAWN = 3, TOOL_GOAL = 4;
+final color SPAWN_COLOR = #FF5050, GOAL_COLOR = #50DC78;
+final int MAX_FILL = 100;  // cells per side of one fill, so a slip of the mouse cannot place thousands
+
 class Editor {
   String file;
   String name;
   PVector spawn, goal;
 
   CellGrid grid = new CellGrid();
-  Cell selected;
+  Cell selected;  // build tool: the cell whose handles are shown
   int brush = BLOCK_PLATFORM;
+  int tool = TOOL_BUILD;
+
+  // Multi-cell selection (select tool, and what the last fill placed)
+  HashSet<Cell> selection = new HashSet<Cell>();
+  boolean leftDragging;
+  Cell selStart, selEnd;      // corners of the box being dragged out
+  HashSet<Cell> selBase;      // selection before this drag, kept when Shift is held
+  boolean shiftDown;
+
+  // Fill tool: a rectangle of cells in the layer fillStart[fillAxis]
+  boolean filling;
+  int fillAxis;
+  int[] fillStart, fillEnd;
 
   boolean isIso = true;
   float t = 1;  // view blend, same meaning as Player.shiftT: side view flattens yaw and pitch
@@ -209,7 +232,7 @@ class Editor {
   }
 
   int handleAt(float sx, float sy) {
-    if (selected == null) return -1;
+    if (tool != TOOL_BUILD || selected == null) return -1;
     OrthoView v = view();
     PVector eye = v.eye();
     for (int i = 0; i < DIRS.length; i++) {
@@ -220,16 +243,20 @@ class Editor {
     return -1;
   }
 
-  // Nearest cell under the mouse: a ray from the camera through the pixel
-  Cell cellAt(float sx, float sy) {
+  // Ray from the camera through a screen pixel: { origin, direction }
+  PVector[] mouseRay(float sx, float sy) {
     OrthoView v = view();
     PVector eye = v.eye();
-    PVector o = PVector.add(v.fromScreen(sx, sy), PVector.mult(eye, 10000));
-    PVector d = PVector.mult(eye, -1);
+    return new PVector[] { PVector.add(v.fromScreen(sx, sy), PVector.mult(eye, 10000)), PVector.mult(eye, -1) };
+  }
+
+  // Nearest cell under the mouse: a ray from the camera through the pixel
+  Cell cellAt(float sx, float sy) {
+    PVector[] r = mouseRay(sx, sy);
     Cell best = null;
     float bestS = Float.MAX_VALUE;
     for (Cell c : grid.cells.values()) {
-      float s = rayEntry(o, d, c.minB(), c.maxB());
+      float s = rayEntry(r[0], r[1], c.minB(), c.maxB());
       if (s >= 0 && s < bestS) {
         bestS = s;
         best = c;
@@ -238,10 +265,154 @@ class Editor {
     return best;
   }
 
+  // Index into DIRS of the face of c the mouse ray enters through
+  int faceAt(Cell c, float sx, float sy) {
+    PVector[] r = mouseRay(sx, sy);
+    PVector mn = c.minB(), mx = c.maxB();
+    PVector p = PVector.add(r[0], PVector.mult(r[1], rayEntry(r[0], r[1], mn, mx)));
+    int best = 0;
+    float bestGap = Float.MAX_VALUE;
+    for (int i = 0; i < DIRS.length; i++) {
+      int a = axisOf(DIRS[i]);
+      float side = getAxis(DIRS[i][a] > 0 ? mx : mn, a);
+      float gap = abs(getAxis(p, a) - side);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  int axisOf(int[] d) {
+    return d[0] != 0 ? 0 : d[1] != 0 ? 1 : 2;
+  }
+
   void removeCell(Cell c) {
     if (c == null) return;
     grid.remove(c);
+    selection.remove(c);
     if (selected == c) selected = null;
+  }
+
+  void removeSelection() {
+    for (Cell c : selection) {
+      grid.remove(c);
+      if (selected == c) selected = null;
+    }
+    flash("Removed " + selection.size());
+    selection.clear();
+  }
+
+  // Delete key / right click: the whole selection if there is one
+  void removeAt(Cell c) {
+    if (c != null && selection.contains(c)) removeSelection();
+    else removeCell(c);
+  }
+
+  void setTool(int t) {
+    tool = t;
+    leftDragging = false;
+    filling = false;
+    if (t == TOOL_BUILD) selection.clear();  // build works on one cell at a time
+  }
+
+  // select tool
+
+  void startSelect(float sx, float sy) {
+    selBase = shiftDown ? new HashSet<Cell>(selection) : new HashSet<Cell>();
+    selStart = selEnd = cellAt(sx, sy);
+    updateSelection();
+  }
+
+  void dragSelect(float sx, float sy) {
+    Cell c = cellAt(sx, sy);
+    if (c == null) return;  // over empty space: keep the last corner
+    if (selStart == null) selStart = c;
+    selEnd = c;
+    updateSelection();
+  }
+
+  // Selection = the base plus every cell inside the box spanned by the two corners
+  void updateSelection() {
+    selection = new HashSet<Cell>(selBase);
+    if (selStart == null) return;
+    int x0 = min(selStart.x, selEnd.x), x1 = max(selStart.x, selEnd.x);
+    int y0 = min(selStart.y, selEnd.y), y1 = max(selStart.y, selEnd.y);
+    int z0 = min(selStart.z, selEnd.z), z1 = max(selStart.z, selEnd.z);
+    for (Cell c : grid.cells.values()) {
+      if (c.x >= x0 && c.x <= x1 && c.y >= y0 && c.y <= y1 && c.z >= z0 && c.z <= z1) selection.add(c);
+    }
+  }
+
+  // spawn / goal tools
+
+  // Where a marker would go for a click at (sx, sy): standing on top of the block
+  // under the mouse, in level coordinates (x, z at the cell centre, y = feet).
+  // null if there is no block there, or the cell above it is taken.
+  PVector markerSpot(float sx, float sy) {
+    Cell c = cellAt(sx, sy);
+    if (c == null || grid.get(c.x, c.y + 1, c.z) != null) return null;
+    return new PVector(c.x + 0.5, c.y + 1, c.z + 0.5);
+  }
+
+  void placeMarker(float sx, float sy) {
+    PVector p = markerSpot(sx, sy);
+    if (p == null) {
+      flash("Click the top of a block with free space above it");
+      return;
+    }
+    if (tool == TOOL_SPAWN) spawn = p;
+    else goal = p;
+  }
+
+  // fill tool
+
+  // The fill grows in the layer just outside the clicked face. A face pointing
+  // straight at the camera (as in side view) cannot be built out from, the same
+  // as with handles, so then the fill stays in the clicked cell's own layer.
+  void startFill(float sx, float sy) {
+    Cell c = cellAt(sx, sy);
+    if (c == null) return;
+    int[] d = DIRS[faceAt(c, sx, sy)];
+    boolean facing = abs(dirDot(d, view().eye())) >= 0.95;
+    fillAxis = axisOf(d);
+    fillStart = facing ? new int[] { c.x, c.y, c.z } : new int[] { c.x + d[0], c.y + d[1], c.z + d[2] };
+    fillEnd = fillStart.clone();
+    filling = true;
+  }
+
+  // The mouse ray meets the fill layer's mid-plane; the cell there is the far corner
+  void dragFill(float sx, float sy) {
+    PVector[] r = mouseRay(sx, sy);
+    float da = getAxis(r[1], fillAxis);
+    if (abs(da) < 0.05) return;  // looking along the layer edge-on: no sensible point
+    float s = (fillStart[fillAxis] + 0.5 - getAxis(r[0], fillAxis)) / da;
+    PVector p = PVector.add(r[0], PVector.mult(r[1], s));
+    int[] e = { floor(p.x), floor(p.y), floor(p.z) };
+    for (int a = 0; a < 3; a++) {
+      if (a == fillAxis) e[a] = fillStart[a];
+      else e[a] = constrain(e[a], fillStart[a] - (MAX_FILL - 1), fillStart[a] + (MAX_FILL - 1));
+    }
+    fillEnd = e;
+  }
+
+  // Empty cells in the fill rectangle (existing blocks are never overwritten)
+  ArrayList<int[]> fillCells() {
+    ArrayList<int[]> out = new ArrayList<int[]>();
+    for (int x = min(fillStart[0], fillEnd[0]); x <= max(fillStart[0], fillEnd[0]); x++)
+      for (int y = min(fillStart[1], fillEnd[1]); y <= max(fillStart[1], fillEnd[1]); y++)
+        for (int z = min(fillStart[2], fillEnd[2]); z <= max(fillStart[2], fillEnd[2]); z++)
+          if (grid.get(x, y, z) == null) out.add(new int[] { x, y, z });
+    return out;
+  }
+
+  // Places the fill and selects it, so Delete takes it straight back out
+  void finishFill() {
+    filling = false;
+    selection.clear();
+    for (int[] p : fillCells()) selection.add(grid.put(p[0], p[1], p[2], brush));
+    flash("Placed " + selection.size());
   }
 
   // camera
@@ -261,10 +432,27 @@ class Editor {
   // Turning only makes sense in the iso view (side view flattens the angles away).
   // OrthoView.apply() flips y (scale(s, -s, s)), which mirrors the handedness of
   // rotateY, so yaw is subtracted to make positive dYaw turn the view the intuitive way.
+  // Yaw is kept in [-PI, PI): the view blend scales it toward 0, so a yaw wound up
+  // over several turns would otherwise spin through all of them on the way to side view.
   void orbit(float dYaw, float dPitch) {
     isIso = true;
     yaw -= dYaw;
+    yaw = ((yaw + PI) % TWO_PI + TWO_PI) % TWO_PI - PI;
     pitch = constrain(pitch + dPitch, -MAX_PITCH, MAX_PITCH);
+  }
+
+  // Switches between iso and side view. The view turns around cam, so first slide cam
+  // along the view direction onto the block at the screen centre: the picture does
+  // not move (the view is orthographic), but the turn now pivots on what you are looking at.
+  void toggleView() {
+    PVector[] r = mouseRay(width / 2, height / 2);
+    float best = Float.MAX_VALUE;
+    for (Cell c : grid.cells.values()) {
+      float s = rayEntry(r[0], r[1], c.minB(), c.maxB());
+      if (s >= 0 && s < best) best = s;
+    }
+    if (best < Float.MAX_VALUE) cam = PVector.add(r[0], PVector.mult(r[1], best));
+    isIso = !isIso;
   }
 
   // update / draw
@@ -306,51 +494,85 @@ class Editor {
       if (c.type == BLOCK_SPIKE) drawPyramid(c.x, c.y, c.z, SPIKE_HEIGHT, 255);
     }
 
-    // preview of the cell a hovered handle would add (translucent, so it writes no depth)
+    // previews of what a click would add (translucent, so they write no depth)
+    hint(DISABLE_DEPTH_MASK);
     if (hover >= 0) {
       int[] d = DIRS[hover];
-      int px = selected.x + d[0], py = selected.y + d[1], pz = selected.z + d[2];
-      hint(DISABLE_DEPTH_MASK);
-      if (brush == BLOCK_DOT) {
-        drawBall(new PVector(px + 0.5, py + 0.5, pz + 0.5), DOT_RADIUS, color(255, 200, 60, 110));
-      } else if (brush == BLOCK_SPIKE) {
-        drawPyramid(px, py, pz, SPIKE_HEIGHT, 110);
-      } else {
-        noLights();
-        noStroke();
-        beginShape(QUADS);
-        grid.cellFaces(px, py, pz, brush, 110, eye);
-        endShape();
-      }
-      hint(ENABLE_DEPTH_MASK);
+      drawGhost(selected.x + d[0], selected.y + d[1], selected.z + d[2], eye);
     }
+    if (filling) {
+      for (int[] p : fillCells()) drawGhost(p[0], p[1], p[2], eye);
+    }
+    hint(ENABLE_DEPTH_MASK);
     popMatrix();
 
     // screen-space overlays
     noLights();
     hint(DISABLE_DEPTH_TEST);
-    if (selected != null) drawOutline(selected, v);
-    drawMarker(spawn, color(255, 80, 80), v);
-    drawMarker(goal, color(80, 220, 120), v);
-    if (selected != null) drawHandles(hover, v);
+    drawSelection(v);
+    if (tool == TOOL_BUILD && selected != null) drawOutline(selected, v);
+    drawMarker(spawn, SPAWN_COLOR, v);
+    drawMarker(goal, GOAL_COLOR, v);
+    if ((tool == TOOL_SPAWN || tool == TOOL_GOAL) && !overUI(mouseX, mouseY)) {
+      PVector p = markerSpot(mouseX, mouseY);
+      if (p != null) drawMarker(p, color(tool == TOOL_SPAWN ? SPAWN_COLOR : GOAL_COLOR, 110), v);
+    }
+    if (tool == TOOL_BUILD && selected != null) drawHandles(hover, v);
     drawHud();
+  }
+
+  // A translucent preview of a brush cell. Call in world space with the depth mask off.
+  void drawGhost(int px, int py, int pz, PVector eye) {
+    if (brush == BLOCK_DOT) {
+      drawBall(new PVector(px + 0.5, py + 0.5, pz + 0.5), DOT_RADIUS, color(255, 200, 60, 110));
+    } else if (brush == BLOCK_SPIKE) {
+      drawPyramid(px, py, pz, SPIKE_HEIGHT, 110);
+    } else {
+      noLights();
+      noStroke();
+      beginShape(QUADS);
+      grid.cellFaces(px, py, pz, brush, 110, eye);
+      endShape();
+    }
   }
 
   // Outlines the faces of a cell's box that face the camera
   void drawOutline(Cell c, OrthoView v) {
-    PVector mn = c.minB(), mx = c.maxB(), eye = v.eye();
+    PVector eye = v.eye();
     noFill();
     stroke(255, 200, 60);
     strokeWeight(2);
     for (int[] d : DIRS) {
-      if (dirDot(d, eye) <= 0.001) continue;
-      beginShape();
-      for (float[] p : grid.faceCorners(0, 0, 0, d)) {  // unit face, stretched to the box
-        PVector s = v.toScreen(new PVector(lerp(mn.x, mx.x, p[0]), lerp(mn.y, mx.y, p[1]), lerp(mn.z, mx.z, p[2])));
-        vertex(s.x, s.y);
-      }
-      endShape(CLOSE);
+      if (dirDot(d, eye) > 0.001) drawFaceOutline(c, d, v);
     }
+  }
+
+  // Outline of the selection as a whole: camera-facing faces of selected cells
+  // whose neighbour on that side is not selected too
+  void drawSelection(OrthoView v) {
+    if (selection.isEmpty()) return;
+    PVector eye = v.eye();
+    noFill();
+    stroke(80, 200, 255);
+    strokeWeight(1.5);
+    for (Cell c : selection) {
+      for (int[] d : DIRS) {
+        if (dirDot(d, eye) <= 0.001) continue;
+        Cell n = grid.get(c.x + d[0], c.y + d[1], c.z + d[2]);
+        if (n != null && selection.contains(n)) continue;
+        drawFaceOutline(c, d, v);
+      }
+    }
+  }
+
+  void drawFaceOutline(Cell c, int[] d, OrthoView v) {
+    PVector mn = c.minB(), mx = c.maxB();
+    beginShape();
+    for (float[] p : grid.faceCorners(0, 0, 0, d)) {  // unit face, stretched to the box
+      PVector s = v.toScreen(new PVector(lerp(mn.x, mx.x, p[0]), lerp(mn.y, mx.y, p[1]), lerp(mn.z, mx.z, p[2])));
+      vertex(s.x, s.y);
+    }
+    endShape(CLOSE);
   }
 
   void drawHandles(int hover, OrthoView v) {
@@ -425,17 +647,27 @@ class Editor {
   }
 
   void useTool(String id) {
-    if (id.equals("platform")) brush = BLOCK_PLATFORM;
+    if (id.equals("build")) setTool(TOOL_BUILD);
+    else if (id.equals("select")) setTool(TOOL_SELECT);
+    else if (id.equals("fill")) setTool(TOOL_FILL);
+    else if (id.equals("spawn")) setTool(TOOL_SPAWN);
+    else if (id.equals("goal")) setTool(TOOL_GOAL);
+    else if (id.equals("platform")) brush = BLOCK_PLATFORM;
     else if (id.equals("cube")) brush = BLOCK_CUBE;
     else if (id.equals("dot")) brush = BLOCK_DOT;
     else if (id.equals("spike")) brush = BLOCK_SPIKE;
-    else if (id.equals("view")) isIso = !isIso;
+    else if (id.equals("view")) toggleView();
     else if (id.equals("save")) save();
     else if (id.equals("help")) showHelp = !showHelp;
     else if (id.equals("exit")) exitEditor();
   }
 
   boolean toolActive(String id) {
+    if (id.equals("build")) return tool == TOOL_BUILD;
+    if (id.equals("select")) return tool == TOOL_SELECT;
+    if (id.equals("fill")) return tool == TOOL_FILL;
+    if (id.equals("spawn")) return tool == TOOL_SPAWN;
+    if (id.equals("goal")) return tool == TOOL_GOAL;
     if (id.equals("platform")) return brush == BLOCK_PLATFORM;
     if (id.equals("cube")) return brush == BLOCK_CUBE;
     if (id.equals("dot")) return brush == BLOCK_DOT;
@@ -445,6 +677,11 @@ class Editor {
   }
 
   String toolTip(String id) {
+    if (id.equals("build")) return "Build: click a block, then a handle  [B]";
+    if (id.equals("select")) return "Select: drag a box, Shift adds  [V]";
+    if (id.equals("fill")) return "Fill: drag a line or plane from a face  [F]";
+    if (id.equals("spawn")) return "Place spawn on a block  [P]";
+    if (id.equals("goal")) return "Place goal on a block  [G]";
     if (id.equals("platform")) return "Platform brush  [1]";
     if (id.equals("cube")) return "Cube brush  [2]";
     if (id.equals("dot")) return "Dot brush  [3]";
@@ -510,7 +747,7 @@ class Editor {
 
   // x, y, w, h of the help panel, under the right end of the toolbar
   float[] helpRect() {
-    float w = 330, h = HELP_LINES.length * 20 + 36;
+    float w = 420, h = HELP_LINES.length * 20 + 36;
     return new float[] { TB_X + toolbarWidth() - w, TB_Y + toolbarHeight() + 8, w, h };
   }
 
@@ -528,7 +765,13 @@ class Editor {
   }
 
   void drawToolIcon(String id, float cx, float cy) {
-    if (id.equals("platform")) {
+    if (id.equals("spawn") || id.equals("goal")) {
+      // the same ring that marks it in the level
+      noFill();
+      stroke(id.equals("spawn") ? SPAWN_COLOR : GOAL_COLOR);
+      strokeWeight(3);
+      circle(cx, cy, 18);
+    } else if (id.equals("platform")) {
       drawCubeIcon(cx, cy, 12, BLOCK_COLORS[BLOCK_PLATFORM]);
     } else if (id.equals("cube")) {
       drawCubeIcon(cx, cy, 12, BLOCK_COLORS[BLOCK_CUBE]);
@@ -598,6 +841,21 @@ class Editor {
       return;
     }
 
+    if (mouseButton == LEFT && tool == TOOL_SELECT) {
+      leftDragging = true;
+      startSelect(mouseX, mouseY);
+      return;
+    }
+    if (mouseButton == LEFT && (tool == TOOL_SPAWN || tool == TOOL_GOAL)) {
+      placeMarker(mouseX, mouseY);
+      return;
+    }
+    if (mouseButton == LEFT && tool == TOOL_FILL) {
+      startFill(mouseX, mouseY);
+      leftDragging = filling;
+      return;
+    }
+
     if (mouseButton == LEFT) {
       int h = handleAt(mouseX, mouseY);
       if (h >= 0) {
@@ -615,6 +873,11 @@ class Editor {
   }
 
   void mouseDragged() {
+    if (leftDragging) {
+      if (tool == TOOL_SELECT) dragSelect(mouseX, mouseY);
+      else if (filling) dragFill(mouseX, mouseY);
+      return;
+    }
     if (!dragging) return;
     if (dist(mouseX, mouseY, dragStartX, dragStartY) > DRAG_THRESHOLD) dragMoved = true;
     if (dragMoved) {
@@ -627,10 +890,15 @@ class Editor {
   }
 
   void mouseReleased() {
+    if (leftDragging && mouseButton == LEFT) {
+      leftDragging = false;
+      if (filling) finishFill();
+      return;
+    }
     if (!dragging) return;
     dragging = false;
     if (!dragMoved) {  // only a right press can reach here unmoved; middle starts as moved
-      removeCell(cellAt(dragStartX, dragStartY));
+      removeAt(cellAt(dragStartX, dragStartY));
     }
   }
 
@@ -640,6 +908,14 @@ class Editor {
 
   void keyPressed() {
     setKeys(key, true);
+    if (key == CODED && keyCode == SHIFT) shiftDown = true;
+
+    char k = Character.toLowerCase(key);
+    if (k == 'b') setTool(TOOL_BUILD);
+    if (k == 'v') setTool(TOOL_SELECT);
+    if (k == 'f') setTool(TOOL_FILL);
+    if (k == 'p') setTool(TOOL_SPAWN);
+    if (k == 'g') setTool(TOOL_GOAL);
 
     if (key == '1') brush = BLOCK_PLATFORM;
     if (key == '2') brush = BLOCK_CUBE;
@@ -648,14 +924,18 @@ class Editor {
 
     if ((key == 'r' || key == 'R') && !viewKeyDown) {
       viewKeyDown = true;
-      isIso = !isIso;
+      toggleView();
     }
-    if ((key == DELETE || key == BACKSPACE) && selected != null) removeCell(selected);
+    if (key == DELETE || key == BACKSPACE) {
+      if (!selection.isEmpty()) removeSelection();
+      else if (selected != null) removeCell(selected);
+    }
     if (key == ENTER || key == RETURN) save();
   }
 
   void keyReleased() {
     setKeys(key, false);
+    if (key == CODED && keyCode == SHIFT) shiftDown = false;
     if (key == 'r' || key == 'R') viewKeyDown = false;
   }
 
