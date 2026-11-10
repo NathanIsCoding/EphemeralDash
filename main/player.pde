@@ -8,8 +8,8 @@ class Player extends GameObject {
   final float SKIN = 0.0001;
 
   boolean alive = true;
-  float runSpeed = 8;  // constant forward (+x) speed, world units per second
-  float laneSpeed = 1 / 0.12;  // lane change speed: one lane in 0.12 s
+  float runSpeed = 10;  // constant forward (+x) speed, world units per second
+  float laneSpeed = 1 / 0.10;  // lane change speed: one lane in 0.10 s
   float gravity = 30;  // world units per second squared
   float jumpHeight = 2.2;  // world units (peak above take-off)
   float maxFall = 20;  // terminal velocity, world units per second
@@ -81,6 +81,7 @@ class Player extends GameObject {
 
     // 5. Spikes, and falling out of the level
     if (level.touchesSpike(minB(), maxB(), isIso)) alive = false;
+    if (level.touchesBullet(center(), half * BULLET_FORGIVE, isIso)) alive = false;
     if (pos.y < level.killY) alive = false;
 
     // 6. View blend

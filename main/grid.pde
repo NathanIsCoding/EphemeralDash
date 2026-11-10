@@ -7,7 +7,8 @@ final int BLOCK_PLATFORM = 0;
 final int BLOCK_CUBE = 1;
 final int BLOCK_DOT = 2;
 final int BLOCK_SPIKE = 3;
-final String[] BLOCK_NAMES = { "Platform", "Cube", "Dot", "Spike" };
+final int BLOCK_CANNON = 4;
+final String[] BLOCK_NAMES = { "Platform", "Cube", "Dot", "Spike", "Cannon" };
 final float DOT_RADIUS = 0.25;
 final float SPIKE_HEIGHT = 0.8;  // world units, tip above the cell floor
 final float SPIKE_INSET = 0.2;   // hitbox is this much smaller than the base on each side
@@ -18,15 +19,32 @@ final int[] SPIKE_COLORS = { #8C8C96, #B4B4BE, #D2D2DC, #A0A0AA };
 // Platforms and cubes are drawn as box faces from BLOCK_COLORS; dots and spikes are
 // drawn as their own shapes and never hide a neighbour's faces
 boolean isBlock(int type) {
-  return type == BLOCK_PLATFORM || type == BLOCK_CUBE;
+  return type == BLOCK_PLATFORM || type == BLOCK_CUBE || type == BLOCK_CANNON;
 }
 
 // x faces, z faces, y faces colours per block type
-// (left, front and top in the game's view)
+// (left, front and top in the game's view). Only box types have colours.
 final int[][] BLOCK_COLORS = {
   { #285AAA, #3C78D2, #5A96F0 },  // platform
   { #AA3C3C, #D25050, #F07878 },  // cube
+  null,                           // dot
+  null,                           // spike
+  { #32323C, #464655, #5F5F73 },  // cannon
 };
+
+// Names of DIRS, as written in level files
+final String[] DIR_NAMES = { "-x", "+x", "+y", "-y", "+z", "-z" };
+
+int dirIndex(String name) {
+  for (int i = 0; i < DIR_NAMES.length; i++) {
+    if (DIR_NAMES[i].equals(name)) return i;
+  }
+  return 0;
+}
+
+// The directions a cannon can face, in the order T turns through them
+// (a quarter turn each, seen from above): -x, -z, +x, +z
+final int[] CANNON_DIRS = { 0, 5, 1, 4 };
 
 // The six face directions of a cell
 final int[][] DIRS = {
@@ -40,6 +58,9 @@ final int[] DIR_COLOR = { 0, 0, 2, 2, 1, 1 };
 
 class Cell {
   int x, y, z, type;
+  // cannons only: firing direction (index into DIRS) and timing
+  int dir = 0;
+  float interval = CANNON_INTERVAL, offset = 0;
 
   Cell(int x, int y, int z, int type) {
     this.x = x;
@@ -127,6 +148,18 @@ class CellGrid {
     addPoints(spikes, BLOCK_SPIKE);
   }
 
+  void addCannons(JSONArray cannons) {
+    if (cannons == null) return;
+    for (int i = 0; i < cannons.size(); i++) {
+      JSONObject n = cannons.getJSONObject(i);
+      PVector p = readVec(n.getJSONArray("pos"));
+      Cell c = put(floor(p.x), floor(p.y), floor(p.z), BLOCK_CANNON);
+      c.dir = dirIndex(n.getString("dir", "-x"));
+      c.interval = n.getFloat("interval", CANNON_INTERVAL);
+      c.offset = n.getFloat("offset", 0);
+    }
+  }
+
   // One cell per item, at its "pos"
   void addPoints(JSONArray items, int type) {
     if (items == null) return;
@@ -160,16 +193,31 @@ class CellGrid {
   // Emits the faces of a block cell that face the camera (eye points toward it) and
   // are not covered by a neighbour. Call between beginShape(QUADS) and endShape().
   void cellFaces(Cell c, float alpha, PVector eye) {
-    cellFaces(c.x, c.y, c.z, c.type, alpha, eye);
+    cellFaces(c.x, c.y, c.z, c.type, c.dir, alpha, eye);
   }
 
   void cellFaces(int x, int y, int z, int type, float alpha, PVector eye) {
+    cellFaces(x, y, z, type, 0, alpha, eye);
+  }
+
+  // dir only matters for cannons: their body stops CANNON_OUT short of the cell on the
+  // firing side, so the muzzle and lip fit inside the cell, flush with its edge
+  void cellFaces(int x, int y, int z, int type, int dir, float alpha, PVector eye) {
     int[] cols = BLOCK_COLORS[type];
+    int[] f = DIRS[dir];
+    int fa = f[0] != 0 ? 0 : f[1] != 0 ? 1 : 2;
     for (int i = 0; i < DIRS.length; i++) {
       int[] d = DIRS[i];
       if (dirDot(d, eye) <= 0.001 || solidAt(x + d[0], y + d[1], z + d[2])) continue;
       fill(cols[DIR_COLOR[i]], alpha);
-      for (float[] p : faceCorners(x, y, z, d)) vertex(p[0], p[1], p[2]);
+      for (float[] p : faceCorners(x, y, z, d)) {
+        if (type == BLOCK_CANNON) {
+          float lo = fa == 0 ? x : fa == 1 ? y : z;
+          if (f[fa] > 0 && p[fa] > lo + 0.5) p[fa] = lo + 1 - CANNON_OUT;
+          if (f[fa] < 0 && p[fa] < lo + 0.5) p[fa] = lo + CANNON_OUT;
+        }
+        vertex(p[0], p[1], p[2]);
+      }
     }
   }
 }

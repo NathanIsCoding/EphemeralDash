@@ -18,12 +18,13 @@ final float MAX_PITCH = radians(89);  // stop just short of straight up or down
 final float TB_X = 12, TB_Y = 12;
 final float TB_BUTTON = 40, TB_GAP = 6, TB_SEP = 18, TB_PAD = 6;
 // "|" is a separator between groups
-final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "|", "spawn", "goal", "|", "view", "save", "help", "exit" };
+final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "cannon", "|", "spawn", "goal", "|", "view", "save", "help", "exit" };
 final String[] HELP_LINES = {
   "Build [B]: click a block, then a handle to add",
   "Select [V]: drag between blocks to box-select, Shift adds",
   "Fill [F]: drag across a block face to place a line or plane",
   "Spawn [P] / Goal [G]: click a block to place it on top",
+  "T: turn the selected cannon(s) a quarter turn",
   "Right click / Delete: remove (the whole selection if any)",
   "WASD / right drag: pan",
   "Wheel: zoom",
@@ -111,6 +112,7 @@ class Editor {
     grid.addBoxes(json.getJSONArray("cubes"), BLOCK_CUBE);
     grid.addDots(json.getJSONArray("dots"));
     grid.addSpikes(json.getJSONArray("spikes"));
+    grid.addCannons(json.getJSONArray("cannons"));
   }
 
   void save() {
@@ -129,6 +131,17 @@ class Editor {
       s.setJSONArray("pos", intsJSON(c.x, c.y, c.z));
       ss.append(s);
     }
+    // cannons are saved one by one (never merged), since each has its own direction and timing
+    JSONArray ns = new JSONArray();
+    for (Cell c : sortedCells()) {
+      if (c.type != BLOCK_CANNON) continue;
+      JSONObject n = new JSONObject();
+      n.setJSONArray("pos", intsJSON(c.x, c.y, c.z));
+      n.setString("dir", DIR_NAMES[c.dir]);
+      n.setFloat("interval", c.interval);
+      n.setFloat("offset", c.offset);
+      ns.append(n);
+    }
 
     // save data to JSON
     ArrayList<String> out = new ArrayList<String>();
@@ -139,7 +152,8 @@ class Editor {
     addJSONList(out, "platforms", mergeBoxes(BLOCK_PLATFORM), true);
     addJSONList(out, "cubes", mergeBoxes(BLOCK_CUBE), true);
     addJSONList(out, "dots", ds, true);
-    addJSONList(out, "spikes", ss, false);
+    addJSONList(out, "spikes", ss, true);
+    addJSONList(out, "cannons", ns, false);
     out.add("}");
 
     saveStrings(dataPath("levels/" + file), out.toArray(new String[0]));
@@ -345,6 +359,21 @@ class Editor {
     }
   }
 
+  // Turns every cannon in the selection (or the build tool's cell) a quarter turn
+  void turnCannons() {
+    ArrayList<Cell> targets = new ArrayList<Cell>(selection);
+    if (targets.isEmpty() && selected != null) targets.add(selected);
+    int turned = 0;
+    for (Cell c : targets) {
+      if (c.type != BLOCK_CANNON) continue;
+      int i = 0;
+      while (i < CANNON_DIRS.length && CANNON_DIRS[i] != c.dir) i++;
+      c.dir = CANNON_DIRS[(i + 1) % CANNON_DIRS.length];  // an unknown dir starts over at -x
+      turned++;
+    }
+    if (turned == 0) flash("Select a cannon to turn it");
+  }
+
   // spawn / goal tools
 
   // Where a marker would go for a click at (sx, sy): standing on top of the block
@@ -492,6 +521,7 @@ class Editor {
     for (Cell c : grid.cells.values()) {
       if (c.type == BLOCK_DOT) drawBall(cellCenter(c), DOT_RADIUS, color(255, 200, 60));
       if (c.type == BLOCK_SPIKE) drawPyramid(c.x, c.y, c.z, SPIKE_HEIGHT, 255);
+      if (c.type == BLOCK_CANNON) drawCannonBarrel(c.x, c.y, c.z, c.dir, 0);
     }
 
     // previews of what a click would add (translucent, so they write no depth)
@@ -656,6 +686,7 @@ class Editor {
     else if (id.equals("cube")) brush = BLOCK_CUBE;
     else if (id.equals("dot")) brush = BLOCK_DOT;
     else if (id.equals("spike")) brush = BLOCK_SPIKE;
+    else if (id.equals("cannon")) brush = BLOCK_CANNON;
     else if (id.equals("view")) toggleView();
     else if (id.equals("save")) save();
     else if (id.equals("help")) showHelp = !showHelp;
@@ -672,6 +703,7 @@ class Editor {
     if (id.equals("cube")) return brush == BLOCK_CUBE;
     if (id.equals("dot")) return brush == BLOCK_DOT;
     if (id.equals("spike")) return brush == BLOCK_SPIKE;
+    if (id.equals("cannon")) return brush == BLOCK_CANNON;
     if (id.equals("help")) return showHelp;
     return false;
   }
@@ -686,6 +718,7 @@ class Editor {
     if (id.equals("cube")) return "Cube brush  [2]";
     if (id.equals("dot")) return "Dot brush  [3]";
     if (id.equals("spike")) return "Spike brush  [4]";
+    if (id.equals("cannon")) return "Cannon brush  [5]  (T turns it)";
     if (id.equals("view")) return (isIso ? "Switch to side view" : "Switch to iso view") + "  [R]";
     if (id.equals("save")) return "Save  [Enter]";
     if (id.equals("help")) return "Controls";
@@ -779,6 +812,17 @@ class Editor {
       noStroke();
       fill(255, 200, 60);
       circle(cx, cy, 14);
+    } else if (id.equals("cannon")) {
+      // the firing face seen head-on: the muzzle above the lip
+      noStroke();
+      fill(BLOCK_COLORS[BLOCK_CANNON][1]);
+      rect(cx - 11, cy - 11, 22, 22, 2);
+      fill(BLOCK_COLORS[BLOCK_CANNON][2]);
+      rect(cx - 11, cy + 7, 22, 4);
+      fill(BLOCK_COLORS[BLOCK_CANNON][2]);
+      circle(cx, cy - 2, 16);
+      fill(BULLET_COLOR);
+      circle(cx, cy - 2, 9);
     } else if (id.equals("spike")) {
       // the pyramid as seen in iso: dark left side, light front side
       noStroke();
@@ -861,6 +905,7 @@ class Editor {
       if (h >= 0) {
         int[] d = DIRS[h];
         selected = grid.put(selected.x + d[0], selected.y + d[1], selected.z + d[2], brush);
+        if (brush == BLOCK_CANNON && d[1] == 0) selected.dir = h;  // a cannon faces the way it was built out
         return;
       }
       if (grid.isEmpty()) {
@@ -921,6 +966,8 @@ class Editor {
     if (key == '2') brush = BLOCK_CUBE;
     if (key == '3') brush = BLOCK_DOT;
     if (key == '4') brush = BLOCK_SPIKE;
+    if (key == '5') brush = BLOCK_CANNON;
+    if (k == 't') turnCannons();
 
     if ((key == 'r' || key == 'R') && !viewKeyDown) {
       viewKeyDown = true;

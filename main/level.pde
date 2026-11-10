@@ -7,6 +7,8 @@ class Level {
   ArrayList<GameObject> objects = new ArrayList<GameObject>(); // static world objects, used for collision
   CellGrid grid = new CellGrid();  // the same world split into unit cells, used for drawing
   HashMap<Cell, Float> fade = new HashMap<Cell, Float>();  // current alpha of cells that are not fully opaque
+  ArrayList<Bullet> bullets = new ArrayList<Bullet>();
+  float clock = 0;  // seconds since the current attempt started; drives the cannons
 
   Level(String file) {
     JSONObject json = loadJSONObject("levels/" + file);
@@ -45,6 +47,15 @@ class Level {
       }
     }
 
+    JSONArray ns = json.getJSONArray("cannons");
+    if (ns != null) {
+      for (int i = 0; i < ns.size(); i++) {
+        JSONObject n = ns.getJSONObject(i);
+        objects.add(new Cannon(readVec(n.getJSONArray("pos")), dirIndex(n.getString("dir", "-x")),
+                               n.getFloat("interval", CANNON_INTERVAL), n.getFloat("offset", 0)));
+      }
+    }
+
     // falling this far below the lowest thing in the level kills the player
     float lowest = spawn.y;
     for (GameObject o : objects) lowest = min(lowest, o.minB().y);
@@ -54,12 +65,39 @@ class Level {
     grid.addBoxes(cs, BLOCK_CUBE);
     grid.addDots(ds);
     grid.addSpikes(ss);
+    grid.addCannons(ns);
     grid.seeThrough = fade.keySet();  // live view: every faded cell counts as see-through
   }
 
   boolean collides(PVector min, PVector max, boolean is3D) {
     for (GameObject o : objects) {
       if (o.collides(min, max, is3D)) return true;
+    }
+    return false;
+  }
+
+  // A new attempt: the clock restarts and every bullet in flight is gone
+  void reset() {
+    clock = 0;
+    bullets.clear();
+  }
+
+  // Moves the bullets, then fires the cannons (new bullets are already moved on
+  // by the time since their shot, so they must not be moved again this frame)
+  void update(float dt) {
+    float t0 = clock;
+    clock += dt;
+    for (Bullet b : bullets) b.update(dt);
+    for (GameObject o : objects) {
+      if (o instanceof Cannon) ((Cannon) o).fire(t0, clock, bullets);
+    }
+    bullets.removeIf(b -> !b.alive);
+  }
+
+  // true if any bullet touches the ball centred on c with radius r
+  boolean touchesBullet(PVector c, float r, boolean is3D) {
+    for (Bullet b : bullets) {
+      if (b.hits(c, r, is3D)) return true;
     }
     return false;
   }
@@ -129,7 +167,9 @@ class Level {
 
     for (GameObject o : objects) {
       if (!(o instanceof Platform)) o.display();  // dots and spikes; boxes are drawn as cells above
+      if (o instanceof Cannon) ((Cannon) o).displayBarrel(clock);
     }
+    for (Bullet b : bullets) b.display();
     player.display();
     player.displayShadow();
 

@@ -43,6 +43,7 @@ void setup() {
 // put the player back at the level spawn and snap the camera to them
 void resetPlayer() {
   player = new Player(level.spawn.copy());
+  level.reset();
   cam = camTarget();
 }
 
@@ -57,6 +58,7 @@ void draw() {
   lastMillis = millis();
 
   if (state == PLAYING) {
+    level.update(dt);
     player.update(dt);
     if (!player.alive) resetPlayer();
     cam.lerp(camTarget(), 1 - exp(-dt * 8));
@@ -86,8 +88,7 @@ void draw() {
   pushMatrix();
   applyCamera(player.shiftT);
   // while paused dt is 0 so block fading freezes too
-  level.display(player, state == PLAYING ? dt : 0);
-  popMatrix();
+  level.display(player, state == PLAYING ? dt : 0);  popMatrix();
 
   // screen-space overlays go on top of the world, so they ignore depth
   noLights();
@@ -138,7 +139,6 @@ void keyPressed() {
       rDown = true;
       player.toggleShift();
     }
-
     // one lane per tap (iso only; the player ignores it in side view)
     char k = Character.toLowerCase(key);
     // A/D are left/right relative to the run direction (+x): left is -z, right is +z
