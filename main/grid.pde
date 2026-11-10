@@ -6,8 +6,20 @@ import java.util.HashSet;
 final int BLOCK_PLATFORM = 0;
 final int BLOCK_CUBE = 1;
 final int BLOCK_DOT = 2;
-final String[] BLOCK_NAMES = { "Platform", "Cube", "Dot" };
+final int BLOCK_SPIKE = 3;
+final String[] BLOCK_NAMES = { "Platform", "Cube", "Dot", "Spike" };
 final float DOT_RADIUS = 0.25;
+final float SPIKE_HEIGHT = 0.8;  // world units, tip above the cell floor
+final float SPIKE_INSET = 0.2;   // hitbox is this much smaller than the base on each side
+
+// -x, +z, +x, -z side colours of a spike
+final int[] SPIKE_COLORS = { #8C8C96, #B4B4BE, #D2D2DC, #A0A0AA };
+
+// Platforms and cubes are drawn as box faces from BLOCK_COLORS; dots and spikes are
+// drawn as their own shapes and never hide a neighbour's faces
+boolean isBlock(int type) {
+  return type == BLOCK_PLATFORM || type == BLOCK_CUBE;
+}
 
 // x faces, z faces, y faces colours per block type
 // (left, front and top in the game's view)
@@ -44,6 +56,7 @@ class Cell {
 
   PVector maxB() {
     if (type == BLOCK_DOT) return new PVector(x + 0.5 + DOT_RADIUS, y + 0.5 + DOT_RADIUS, z + 0.5 + DOT_RADIUS);
+    if (type == BLOCK_SPIKE) return new PVector(x + 1, y + SPIKE_HEIGHT, z + 1);
     return new PVector(x + 1, y + 1, z + 1);
   }
 }
@@ -59,10 +72,10 @@ class CellGrid {
 
   Cell get(int x, int y, int z) { return cells.get(keyOf(x, y, z)); }
 
-  // Dots and see-through cells do not hide the faces of neighbouring blocks
+  // Dots, spikes and see-through cells do not hide the faces of neighbouring blocks
   boolean solidAt(int x, int y, int z) {
     Cell c = get(x, y, z);
-    return c != null && c.type != BLOCK_DOT && !seeThrough.contains(c);
+    return c != null && isBlock(c.type) && !seeThrough.contains(c);
   }
 
   Cell put(int x, int y, int z, int type) {
@@ -107,10 +120,19 @@ class CellGrid {
   }
 
   void addDots(JSONArray dots) {
-    if (dots == null) return;
-    for (int i = 0; i < dots.size(); i++) {
-      PVector p = readVec(dots.getJSONObject(i).getJSONArray("pos"));
-      put(floor(p.x), floor(p.y), floor(p.z), BLOCK_DOT);
+    addPoints(dots, BLOCK_DOT);
+  }
+
+  void addSpikes(JSONArray spikes) {
+    addPoints(spikes, BLOCK_SPIKE);
+  }
+
+  // One cell per item, at its "pos"
+  void addPoints(JSONArray items, int type) {
+    if (items == null) return;
+    for (int i = 0; i < items.size(); i++) {
+      PVector p = readVec(items.getJSONObject(i).getJSONArray("pos"));
+      put(floor(p.x), floor(p.y), floor(p.z), type);
     }
   }
 

@@ -35,15 +35,31 @@ class Level {
       }
     }
 
+    JSONArray ss = json.getJSONArray("spikes");
+    if (ss != null) {
+      for (int i = 0; i < ss.size(); i++) {
+        objects.add(new Spike(readVec(ss.getJSONObject(i).getJSONArray("pos"))));
+      }
+    }
+
     grid.addBoxes(ps, BLOCK_PLATFORM);
     grid.addBoxes(cs, BLOCK_CUBE);
     grid.addDots(ds);
+    grid.addSpikes(ss);
     grid.seeThrough = fade.keySet();  // live view: every faded cell counts as see-through
   }
 
   boolean collides(PVector min, PVector max, boolean is3D) {
     for (GameObject o : objects) {
       if (o.collides(min, max, is3D)) return true;
+    }
+    return false;
+  }
+
+  // true if the box touches any spike's hitbox
+  boolean touchesSpike(PVector min, PVector max, boolean is3D) {
+    for (GameObject o : objects) {
+      if (o instanceof Spike && ((Spike) o).touches(min, max, is3D)) return true;
     }
     return false;
   }
@@ -87,7 +103,7 @@ class Level {
     // Update every cell's fade before drawing any, so cellFaces already knows
     // which neighbours are see-through this frame
     for (Cell c : order) {
-      if (c.type == BLOCK_DOT) continue;
+      if (!isBlock(c.type)) continue;
       float target = coversPlayer(c, rays, eye) ? coveredAlpha : 255;
       float alpha = fade.getOrDefault(c, 255f);
       alpha += (target - alpha) * k;
@@ -99,12 +115,12 @@ class Level {
     noStroke();
     beginShape(QUADS);
     for (Cell c : order) {
-      if (c.type != BLOCK_DOT && !fade.containsKey(c)) grid.cellFaces(c, 255, eye);
+      if (isBlock(c.type) && !fade.containsKey(c)) grid.cellFaces(c, 255, eye);
     }
     endShape();
 
     for (GameObject o : objects) {
-      if (!(o instanceof Platform)) o.display();  // dots; boxes are drawn as cells above
+      if (!(o instanceof Platform)) o.display();  // dots and spikes; boxes are drawn as cells above
     }
     player.display();
     player.displayShadow();

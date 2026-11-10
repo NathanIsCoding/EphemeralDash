@@ -18,7 +18,7 @@ final float MAX_PITCH = radians(89);  // stop just short of straight up or down
 final float TB_X = 12, TB_Y = 12;
 final float TB_BUTTON = 40, TB_GAP = 6, TB_SEP = 18, TB_PAD = 6;
 // "|" is a separator between groups
-final String[] TOOLS = { "platform", "cube", "dot", "|", "view", "save", "help", "exit" };
+final String[] TOOLS = { "platform", "cube", "dot", "spike", "|", "view", "save", "help", "exit" };
 final String[] HELP_LINES = {
   "Left click: select, or click a handle to add",
   "Right click / Delete: remove",
@@ -87,6 +87,7 @@ class Editor {
     grid.addBoxes(json.getJSONArray("platforms"), BLOCK_PLATFORM);
     grid.addBoxes(json.getJSONArray("cubes"), BLOCK_CUBE);
     grid.addDots(json.getJSONArray("dots"));
+    grid.addSpikes(json.getJSONArray("spikes"));
   }
 
   void save() {
@@ -98,6 +99,13 @@ class Editor {
       d.setFloat("radius", DOT_RADIUS);
       ds.append(d);
     }
+    JSONArray ss = new JSONArray();
+    for (Cell c : sortedCells()) {
+      if (c.type != BLOCK_SPIKE) continue;
+      JSONObject s = new JSONObject();
+      s.setJSONArray("pos", intsJSON(c.x, c.y, c.z));
+      ss.append(s);
+    }
 
     // save data to JSON
     ArrayList<String> out = new ArrayList<String>();
@@ -107,7 +115,8 @@ class Editor {
     out.add("  \"goal\": " + compactJSON(vecJSON(goal)) + ",");
     addJSONList(out, "platforms", mergeBoxes(BLOCK_PLATFORM), true);
     addJSONList(out, "cubes", mergeBoxes(BLOCK_CUBE), true);
-    addJSONList(out, "dots", ds, false);
+    addJSONList(out, "dots", ds, true);
+    addJSONList(out, "spikes", ss, false);
     out.add("}");
 
     saveStrings(dataPath("levels/" + file), out.toArray(new String[0]));
@@ -289,11 +298,12 @@ class Editor {
     noStroke();
     beginShape(QUADS);
     for (Cell c : grid.cells.values()) {
-      if (c.type != BLOCK_DOT) grid.cellFaces(c, 255, eye);
+      if (isBlock(c.type)) grid.cellFaces(c, 255, eye);
     }
     endShape();
     for (Cell c : grid.cells.values()) {
       if (c.type == BLOCK_DOT) drawBall(cellCenter(c), DOT_RADIUS, color(255, 200, 60));
+      if (c.type == BLOCK_SPIKE) drawPyramid(c.x, c.y, c.z, SPIKE_HEIGHT, 255);
     }
 
     // preview of the cell a hovered handle would add (translucent, so it writes no depth)
@@ -303,6 +313,8 @@ class Editor {
       hint(DISABLE_DEPTH_MASK);
       if (brush == BLOCK_DOT) {
         drawBall(new PVector(px + 0.5, py + 0.5, pz + 0.5), DOT_RADIUS, color(255, 200, 60, 110));
+      } else if (brush == BLOCK_SPIKE) {
+        drawPyramid(px, py, pz, SPIKE_HEIGHT, 110);
       } else {
         noLights();
         noStroke();
@@ -416,6 +428,7 @@ class Editor {
     if (id.equals("platform")) brush = BLOCK_PLATFORM;
     else if (id.equals("cube")) brush = BLOCK_CUBE;
     else if (id.equals("dot")) brush = BLOCK_DOT;
+    else if (id.equals("spike")) brush = BLOCK_SPIKE;
     else if (id.equals("view")) isIso = !isIso;
     else if (id.equals("save")) save();
     else if (id.equals("help")) showHelp = !showHelp;
@@ -426,6 +439,7 @@ class Editor {
     if (id.equals("platform")) return brush == BLOCK_PLATFORM;
     if (id.equals("cube")) return brush == BLOCK_CUBE;
     if (id.equals("dot")) return brush == BLOCK_DOT;
+    if (id.equals("spike")) return brush == BLOCK_SPIKE;
     if (id.equals("help")) return showHelp;
     return false;
   }
@@ -434,6 +448,7 @@ class Editor {
     if (id.equals("platform")) return "Platform brush  [1]";
     if (id.equals("cube")) return "Cube brush  [2]";
     if (id.equals("dot")) return "Dot brush  [3]";
+    if (id.equals("spike")) return "Spike brush  [4]";
     if (id.equals("view")) return (isIso ? "Switch to side view" : "Switch to iso view") + "  [R]";
     if (id.equals("save")) return "Save  [Enter]";
     if (id.equals("help")) return "Controls";
@@ -521,6 +536,13 @@ class Editor {
       noStroke();
       fill(255, 200, 60);
       circle(cx, cy, 14);
+    } else if (id.equals("spike")) {
+      // the pyramid as seen in iso: dark left side, light front side
+      noStroke();
+      fill(SPIKE_COLORS[0]);
+      triangle(cx, cy - 11, cx - 11, cy + 7, cx, cy + 11);
+      fill(SPIKE_COLORS[1]);
+      triangle(cx, cy - 11, cx, cy + 11, cx + 11, cy + 7);
     } else if (id.equals("view")) {
       // shows the view you are in: a cube for iso, a flat square for side
       drawIcon(isIso ? "view_iso" : "view_side", cx, cy);
@@ -622,6 +644,7 @@ class Editor {
     if (key == '1') brush = BLOCK_PLATFORM;
     if (key == '2') brush = BLOCK_CUBE;
     if (key == '3') brush = BLOCK_DOT;
+    if (key == '4') brush = BLOCK_SPIKE;
 
     if ((key == 'r' || key == 'R') && !viewKeyDown) {
       viewKeyDown = true;

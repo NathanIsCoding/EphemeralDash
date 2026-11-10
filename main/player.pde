@@ -7,7 +7,7 @@ class Player extends GameObject {
   // gap left when snapping against a surface, so float error does not count as overlap
   final float SKIN = 0.0001;
 
-
+  boolean alive = true;
   float maxSpeed = 15;  // horizontal safety cap, world units per second
   float accel = 150;  // world units per second squared
   float friction = 12;  // higher = stops faster
@@ -110,7 +110,10 @@ class Player extends GameObject {
       if (moveAxis(2, step.z)) velocity.z = 0;
     }
 
-    // 5. View blend
+    // 6. Spikes
+    if (level.touchesSpike(minB(), maxB(), isIso)) alive = false;
+
+    // 7. View blend
     float target = isIso ? 1 : 0;
     shiftT += (target - shiftT) * min(1, dt * 15);
   }

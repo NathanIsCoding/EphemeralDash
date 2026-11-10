@@ -89,6 +89,54 @@ class Dot extends GameObject {
   }
 }
 
+// Square pyramid sitting on the floor of a grid cell. Not solid: touching it kills
+// the player (see Level.touchesSpike), it never blocks movement.
+class Spike extends GameObject {
+  Spike(PVector pos) {
+    this.pos = pos;
+  }
+
+  PVector minB() { return new PVector(pos.x, pos.y, pos.z); }
+  PVector maxB() { return new PVector(pos.x + 1, pos.y + SPIKE_HEIGHT, pos.z + 1); }
+
+  boolean collides(PVector min, PVector max, boolean is3D) {
+    return false;
+  }
+
+  // Box vs a hitbox inset from the visual, so grazing the slope or the tip is forgiven
+  boolean touches(PVector min, PVector max, boolean is3D) {
+    float in = SPIKE_INSET;
+    boolean xHit = min.x < pos.x + 1 - in && max.x > pos.x + in;
+    boolean yHit = min.y < pos.y + SPIKE_HEIGHT * 0.75 && max.y > pos.y;
+    boolean zHit = min.z < pos.z + 1 - in && max.z > pos.z + in;
+    return is3D ? (xHit && yHit && zHit) : (xHit && yHit);
+  }
+
+  void display() {
+    drawPyramid(pos.x, pos.y, pos.z, SPIKE_HEIGHT, 255);
+  }
+}
+
+// Square pyramid on the floor of the cell (x, y, z), tip at height h above it.
+// Unlike a box, the +x and -z sides lean up toward the camera, so all four sides
+// are drawn and the depth buffer sorts them out. The base faces down and is skipped.
+void drawPyramid(float x, float y, float z, float h, float alpha) {
+  float x1 = x + 1, z1 = z + 1;
+  float ax = x + 0.5, ay = y + h, az = z + 0.5;  // apex
+  noLights();  // flat colors per face, like boxes
+  noStroke();
+  beginShape(TRIANGLES);
+  fill(SPIKE_COLORS[0], alpha);  // -x
+  vertex(x, y, z);    vertex(x, y, z1);   vertex(ax, ay, az);
+  fill(SPIKE_COLORS[1], alpha);  // +z, the face you see in side view
+  vertex(x, y, z1);   vertex(x1, y, z1);  vertex(ax, ay, az);
+  fill(SPIKE_COLORS[2], alpha);  // +x
+  vertex(x1, y, z1);  vertex(x1, y, z);   vertex(ax, ay, az);
+  fill(SPIKE_COLORS[3], alpha);  // -z
+  vertex(x1, y, z);   vertex(x, y, z);    vertex(ax, ay, az);
+  endShape();
+}
+
 // Draws the three faces the camera can ever see (-x, +z, top) of the box (x0, y0, z0) to (x1, y1, z1).
 // The other three always face away from the camera, and the depth buffer would hide them anyway.
 void drawBox(float x0, float y0, float z0, float x1, float y1, float z1,

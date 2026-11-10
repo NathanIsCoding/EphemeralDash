@@ -10,6 +10,8 @@ final int PLAYING = 0;
 final int PAUSED = 1;
 final int MAIN_MENU = 2;
 final int EDITOR = 3;
+final int RESET = 4;
+
 int state = MAIN_MENU;
 
 String levelFile = "level1.json";
@@ -37,7 +39,14 @@ void setup() {
 
 // put the player back at the level spawn and snap the camera to them
 void resetPlayer() {
+  Player old = player;
   player = new Player(level.spawn.copy());
+  if (old != null) {  // keep held keys, so you can keep running after a respawn
+    player.left = old.left;
+    player.right = old.right;
+    player.fwd = old.fwd;
+    player.back = old.back;
+  }
   cam = player.center();
 }
 
@@ -48,6 +57,7 @@ void draw() {
 
   if (state == PLAYING) {
     player.update(dt);
+    if (!player.alive) resetPlayer();
     cam.lerp(player.center(), 1 - exp(-dt * 8));
   }
 
