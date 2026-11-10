@@ -8,9 +8,8 @@ class Player extends GameObject {
   final float SKIN = 0.0001;
 
   boolean alive = true;
-  float maxSpeed = 15;  // horizontal safety cap, world units per second
-  float accel = 150;  // world units per second squared
-  float friction = 12;  // higher = stops faster
+  float runSpeed = 8;  // constant forward (+x) speed, world units per second
+  float laneSpeed = 1 / 0.12;  // lane change speed: one lane in 0.12 s
   float gravity = 30;  // world units per second squared
   float jumpHeight = 2.2;  // world units (peak above take-off)
   float maxFall = 20;  // terminal velocity, world units per second
@@ -19,11 +18,20 @@ class Player extends GameObject {
   boolean isGrounded = false; // if on ground
   float shiftT = 0;  // 0 = side view, 1 = iso
 
-  boolean left, right, fwd, back;
+  // Lanes are the z cells; the player rests on a lane's centre (lane + 0.5).
+  // During a lane change targetLane differs from lane; if the slide hits
+  // something side-on, the player slides back to fromLane (a bump).
+  int lane, targetLane, fromLane;
 
   Player(PVector pos) {
     this.pos = pos.copy();  // copy so the level's spawn is not modified
     velocity = new PVector();
+    lane = targetLane = fromLane = floor(this.pos.z);
+    this.pos.z = laneZ(lane);  // a spawn on a cell edge snaps to that cell's centre
+  }
+
+  float laneZ(int l) {
+    return l + 0.5;
   }
 
   // Returns false (and stays put) if the player would overlap something in the new view
@@ -33,100 +41,84 @@ class Player extends GameObject {
     return true;
   }
 
+  // Jumping only exists in side view; iso is for changing lanes
   void jump() {
-    if (isGrounded) {
+    if (!isIso && isGrounded) {
       velocity.y = sqrt(2 * gravity * jumpHeight);
       isGrounded = false;
     }
   }
 
-  void setKey(char k, boolean down) {
-    switch (Character.toLowerCase(k)) {
-      case 'a':
-        left = down;
-        break;
-      case 'd':
-        right = down;
-        break;
-      case 'w':
-        fwd = down;
-        break;
-      case 's':
-        back = down;
-        break;
-    }
+  // dir: -1 = one lane left (A, -z), +1 = one lane right (D, +z). Iso view only,
+  // and ignored while already changing lanes.
+  void changeLane(int dir) {
+    if (!isIso || targetLane != lane) return;
+    fromLane = lane;
+    targetLane = lane + dir;
   }
 
   void update(float dt) {
-    // 1. Build the input vector from the keys
-    PVector input = new PVector();
-
-    // A/D always move along x, so holding one keeps the same heading through a view shift.
-    // W/S add depth, which only exists in iso view.
-    if (right) input.x += 1;
-    if (left) input.x -= 1;
-    if (isIso) {
-      if (fwd) input.z -= 1;
-      if (back) input.z += 1; 
-    }
-
-    // ensures diagonals are not faster
-    if (input.magSq() > 0) {
-      input.normalize();
-    }
-
-    // 2. Accelerate
-    velocity.add(PVector.mult(input, accel * dt));
-
-    // 3. Friction and cap on horizontal motion only, so jumps are not damped
-    float damp = max(0, 1 - friction * dt);
-    velocity.x *= damp;
-    velocity.z *= damp;
-    PVector flat = new PVector(velocity.x, 0, velocity.z);
-    if (flat.mag() > maxSpeed) {
-      flat.setMag(maxSpeed);
-      velocity.x = flat.x;
-      velocity.z = flat.z;
-    }
-    if (!isIso) { velocity.z = 0; }  // kill leftover depth motion in side view
-
-    // 4. Gravity. Applied every frame, even when grounded,
-    //    so the downward collision below keeps confirming we are on the ground.
+    // 1. Constant forward run, gravity on y. Gravity is applied every frame, even
+    //    when grounded, so the downward collision keeps confirming we are on the ground.
+    velocity.x = runSpeed;
     velocity.y = max(velocity.y - gravity * dt, -maxFall);
 
-    // 5. Integrate position (after velocity, so there is no input lag)
-    // pos.add(PVector.mult(velocity, dt));
-    PVector step = PVector.mult(velocity, dt);
+    // 2. Forward. Anything that stops us head-on is a failed jump.
+    if (moveAxis(0, velocity.x * dt, isIso)) {
+      alive = false;
+      return;
+    }
 
-    if (moveAxis(0, step.x)) velocity.x = 0;
-
+    // 3. Vertical
     isGrounded = false;
-    if (moveAxis(1, step.y)) {
-      if (step.y < 0) isGrounded = true;  // landed (hitting a ceiling does not count)
+    if (moveAxis(1, velocity.y * dt, isIso)) {
+      if (velocity.y < 0) isGrounded = true;  // landed (hitting a ceiling does not count)
       velocity.y = 0;
     }
 
-    if (isIso) {
-      if (moveAxis(2, step.z)) velocity.z = 0;
-    }
+    // 4. Lane change
+    updateLane(dt);
 
-    // 6. Spikes
+    // 5. Spikes, and falling out of the level
     if (level.touchesSpike(minB(), maxB(), isIso)) alive = false;
+    if (pos.y < level.killY) alive = false;
 
-    // 7. View blend
+    // 6. View blend
     float target = isIso ? 1 : 0;
     shiftT += (target - shiftT) * min(1, dt * 15);
   }
 
+  // Slides z toward the target lane's centre. A side-on hit turns the slide around,
+  // back to the lane we came from. The slide always collides in 3D, even if the
+  // view switches to side view mid-slide, so it can never end up inside a block.
+  void updateLane(float dt) {
+    float target = laneZ(targetLane);
+    float dz = target - pos.z;
+    if (dz == 0) {
+      lane = targetLane;
+      return;
+    }
+    float step = constrain(dz, -laneSpeed * dt, laneSpeed * dt);
+    if (moveAxis(2, step, true)) {
+      if (targetLane != fromLane) targetLane = fromLane;  // bump: head back
+      return;
+    }
+    if (abs(target - pos.z) < 0.0001) {
+      pos.z = target;
+      lane = targetLane;
+    }
+  }
+
   // Moves along one axis (0 = x, 1 = y, 2 = z). If that overlaps something,
   // the player is snapped flush against the nearest blocking face instead.
+  // is3D: collide as in iso view (false ignores z, as in side view).
   // Returns true if the move was blocked.
-  boolean moveAxis(int axis, float d) {
+  boolean moveAxis(int axis, float d, boolean is3D) {
     if (d == 0) return false;
     float old = getAxis(pos, axis);
     setAxis(pos, axis, old + d);
 
-    ArrayList<GameObject> hit = level.hits(minB(), maxB(), isIso);
+    ArrayList<GameObject> hit = level.hits(minB(), maxB(), is3D);
     if (hit.isEmpty()) return false;
 
     // player box spans [pos + lo, pos + hi] on this axis
@@ -145,7 +137,7 @@ class Player extends GameObject {
     target = d > 0 ? max(target, old) : min(target, old);
     setAxis(pos, axis, target);
 
-    if (hits()) setAxis(pos, axis, old);  // safety net
+    if (hits(is3D)) setAxis(pos, axis, old);  // safety net
     return true;
   }
 

@@ -1,6 +1,9 @@
+final float KILL_DEPTH = 5;  // world units below the level's lowest point
+
 class Level {
   String name;
   PVector spawn, goal;
+  float killY;  // the player dies below this height
   ArrayList<GameObject> objects = new ArrayList<GameObject>(); // static world objects, used for collision
   CellGrid grid = new CellGrid();  // the same world split into unit cells, used for drawing
   HashMap<Cell, Float> fade = new HashMap<Cell, Float>();  // current alpha of cells that are not fully opaque
@@ -41,6 +44,11 @@ class Level {
         objects.add(new Spike(readVec(ss.getJSONObject(i).getJSONArray("pos"))));
       }
     }
+
+    // falling this far below the lowest thing in the level kills the player
+    float lowest = spawn.y;
+    for (GameObject o : objects) lowest = min(lowest, o.minB().y);
+    killY = lowest - KILL_DEPTH;
 
     grid.addBoxes(ps, BLOCK_PLATFORM);
     grid.addBoxes(cs, BLOCK_CUBE);

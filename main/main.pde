@@ -4,13 +4,16 @@ Level level;
 int lastMillis;
 boolean spaceDown = false;
 boolean rDown = false;
+boolean aDown = false;
+boolean dDown = false;
+
+final float LOOK_AHEAD = 4;  // world units the camera looks ahead of the player, in +x
 
 // Game states: one variable instead of separate booleans
 final int PLAYING = 0;
 final int PAUSED = 1;
 final int MAIN_MENU = 2;
 final int EDITOR = 3;
-final int RESET = 4;
 
 int state = MAIN_MENU;
 
@@ -39,15 +42,13 @@ void setup() {
 
 // put the player back at the level spawn and snap the camera to them
 void resetPlayer() {
-  Player old = player;
   player = new Player(level.spawn.copy());
-  if (old != null) {  // keep held keys, so you can keep running after a respawn
-    player.left = old.left;
-    player.right = old.right;
-    player.fwd = old.fwd;
-    player.back = old.back;
-  }
-  cam = player.center();
+  cam = camTarget();
+}
+
+// Where the camera wants to be: a little ahead of the player, so you see what is coming
+PVector camTarget() {
+  return PVector.add(player.center(), new PVector(LOOK_AHEAD, 0, 0));
 }
 
 void draw() {
@@ -58,7 +59,7 @@ void draw() {
   if (state == PLAYING) {
     player.update(dt);
     if (!player.alive) resetPlayer();
-    cam.lerp(player.center(), 1 - exp(-dt * 8));
+    cam.lerp(camTarget(), 1 - exp(-dt * 8));
   }
 
   background(20);
@@ -95,9 +96,6 @@ void draw() {
 }
 
 void keyPressed() {
-  // always track held keys, so a key released while paused does not stay "stuck" on resume
-  player.setKey(key, true);
-
   if (key == ESC) {
     key = 0;  // stop Processing from closing the sketch
     if (state == PLAYING) state = PAUSED;
@@ -140,6 +138,18 @@ void keyPressed() {
       rDown = true;
       player.toggleShift();
     }
+
+    // one lane per tap (iso only; the player ignores it in side view)
+    char k = Character.toLowerCase(key);
+    // A/D are left/right relative to the run direction (+x): left is -z, right is +z
+    if (k == 'a' && !aDown) {
+      aDown = true;
+      player.changeLane(-1);
+    }
+    if (k == 'd' && !dDown) {
+      dDown = true;
+      player.changeLane(1);
+    }
   } else if (state == PAUSED) {
     String choice = pauseMenu.keyPressed();
     if (choice == null) return;
@@ -166,14 +176,16 @@ void exitEditor() {
 }
 
 void keyReleased() {
-  player.setKey(key, false);
   if (key == ' ') spaceDown = false;
+  if (key == 'a' || key == 'A') aDown = false;
+  if (key == 'd' || key == 'D') dDown = false;
   if (key == 'r' || key == 'R') rDown = false;
   if (state == EDITOR) editor.keyReleased();
 }
 
 void mousePressed() {
   if (state == EDITOR) editor.mousePressed();
+  else if (state == PLAYING && mouseButton == LEFT) player.jump();  // same as space
 }
 
 void mouseDragged() {
