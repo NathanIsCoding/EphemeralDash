@@ -14,6 +14,8 @@ final int PLAYING = 0;
 final int PAUSED = 1;
 final int MAIN_MENU = 2;
 final int EDITOR = 3;
+final int LEVEL_SELECT = 4;
+final int WON = 5;
 
 int state = MAIN_MENU;
 
@@ -22,6 +24,8 @@ Editor editor;
 
 PauseMenu pauseMenu = new PauseMenu();
 MainMenu mainMenu = new MainMenu();
+LevelSelect levelSelect = new LevelSelect();
+WinMenu winMenu = new WinMenu();
 
 float worldUnits = 40;  // pixels per world unit in side view
 
@@ -61,6 +65,11 @@ void draw() {
     level.update(dt);
     player.update(dt);
     if (!player.alive) resetPlayer();
+    else if (player.pos.x >= level.goal.x) {
+      // crossing the goal's line counts, in any lane and either view
+      winMenu.open(levelFile);
+      state = WON;
+    }
     cam.lerp(camTarget(), 1 - exp(-dt * 8));
   }
 
@@ -73,6 +82,12 @@ void draw() {
   if (state == MAIN_MENU) {
     hint(DISABLE_DEPTH_TEST);
     mainMenu.display();
+    return;
+  }
+
+  if (state == LEVEL_SELECT) {
+    hint(DISABLE_DEPTH_TEST);
+    levelSelect.display();
     return;
   }
 
@@ -94,6 +109,7 @@ void draw() {
   noLights();
   hint(DISABLE_DEPTH_TEST);
   if (state == PAUSED) pauseMenu.display();
+  if (state == WON) winMenu.display();
 }
 
 void keyPressed() {
@@ -102,6 +118,8 @@ void keyPressed() {
     if (state == PLAYING) state = PAUSED;
     else if (state == PAUSED) state = PLAYING;
     else if (state == EDITOR) exitEditor();
+    else if (state == LEVEL_SELECT) state = MAIN_MENU;
+    else if (state == WON) openLevelSelect(false);
     return;
   }
 
@@ -110,18 +128,30 @@ void keyPressed() {
     return;
   }
 
+  if (state == LEVEL_SELECT) {
+    String file = levelSelect.keyPressed();
+    if (file != null) chooseLevel(file);
+    return;
+  }
+
+  if (state == WON) {
+    String choice = winMenu.keyPressed();
+    if (choice == null) return;
+    if (choice.equals("Next Level")) playLevel(winMenu.nextFile);
+    else if (choice.equals("Level Select")) openLevelSelect(false);
+    return;
+  }
+
   if (state == MAIN_MENU) {
     String choice = mainMenu.keyPressed();
     if (choice == null) return;
 
     if (choice.equals("Play")) {
-      resetPlayer();
-      state = PLAYING;
+      openLevelSelect(false);
     } else if (choice.equals("Settings")) {
       // TODO: settings menu
     } else if (choice.equals("Level Creator")) {
-      editor = new Editor(levelFile);
-      state = EDITOR;
+      openLevelSelect(true);
     } else if (choice.equals("Quit")) {
       exit();
     }
@@ -156,6 +186,9 @@ void keyPressed() {
 
     if (choice.equals("Resume")) {
       state = PLAYING;
+    } else if (choice.equals("Level Select")) {
+      pauseMenu.selected = 0;
+      openLevelSelect(false);
     } else if (choice.equals("Settings")) {
       // TODO: settings menu
     } else if (choice.equals("Main Menu")) {
@@ -167,12 +200,36 @@ void keyPressed() {
   }
 }
 
-// Save the edited level, then reload it so "Play" uses it
+void openLevelSelect(boolean editMode) {
+  levelSelect.open(editMode);
+  state = LEVEL_SELECT;
+}
+
+// The level select picked a file: play it, or open it in the editor
+// (a file that does not exist yet starts out as a new level there)
+void chooseLevel(String file) {
+  if (levelSelect.editMode) {
+    levelFile = file;
+    editor = new Editor(levelFile);
+    state = EDITOR;
+  } else {
+    playLevel(file);
+  }
+}
+
+void playLevel(String file) {
+  levelFile = file;
+  level = new Level(levelFile);
+  resetPlayer();
+  state = PLAYING;
+}
+
+// Save the edited level, then go back to the level list to pick the next one
 void exitEditor() {
   editor.save();
   level = new Level(levelFile);
   resetPlayer();
-  state = MAIN_MENU;
+  openLevelSelect(true);
 }
 
 void keyReleased() {
@@ -185,6 +242,10 @@ void keyReleased() {
 
 void mousePressed() {
   if (state == EDITOR) editor.mousePressed();
+  else if (state == LEVEL_SELECT && mouseButton == LEFT) {
+    String file = levelSelect.mousePressed();
+    if (file != null) chooseLevel(file);
+  }
   else if (state == PLAYING && mouseButton == LEFT) player.jump();  // same as space
 }
 

@@ -104,6 +104,10 @@ class Editor {
   // load / save 
 
   void load() {
+    if (!levelExists(file)) {
+      newLevel();
+      return;
+    }
     JSONObject json = loadJSONObject("levels/" + file);
     name = json.getString("name", file);
     spawn = readVec(json.getJSONArray("spawn"));
@@ -113,6 +117,19 @@ class Editor {
     grid.addDots(json.getJSONArray("dots"));
     grid.addSpikes(json.getJSONArray("spikes"));
     grid.addCannons(json.getJSONArray("cannons"));
+  }
+
+  // A fresh level for an empty slot: a short 3-lane runway with the spawn at one
+  // end and the goal at the other. It is written to disk on the first save.
+  void newLevel() {
+    String digits = file.replaceAll("[^0-9]", "");
+    name = digits.isEmpty() ? file : "Level " + digits;
+    spawn = new PVector(-1.5, 0, 1.5);
+    goal = new PVector(9.5, 0, 1.5);
+    for (int x = -2; x < 10; x++)
+      for (int z = 0; z < 3; z++)
+        grid.put(x, -1, z, BLOCK_PLATFORM);
+    flash("New level: " + file);
   }
 
   void save() {
