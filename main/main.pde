@@ -2,10 +2,6 @@ Player player;
 PVector cam = new PVector();  // world-space point the camera looks at
 Level level;
 int lastMillis;
-boolean spaceDown = false;
-boolean rDown = false;
-boolean aDown = false;
-boolean dDown = false;
 
 final float LOOK_AHEAD = 4;  // world units the camera looks ahead of the player, in +x
 
@@ -17,6 +13,7 @@ final int EDITOR = 3;
 final int LEVEL_SELECT = 4;
 final int WON = 5;
 final int DEAD = 6;
+final int SETTINGS = 7;
 
 final int DEATH_DELAY = 3000;  // ms the "You Died" screen shows before the restart
 int deathMillis;
@@ -30,6 +27,8 @@ PauseMenu pauseMenu = new PauseMenu();
 MainMenu mainMenu = new MainMenu();
 LevelSelect levelSelect = new LevelSelect();
 WinMenu winMenu = new WinMenu();
+SettingsMenu settingsMenu = new SettingsMenu();
+Keybinds keybinds;  // made in setup(): it needs DEFAULT_KEYS from settings.pde, which is set up after this tab's globals
 
 float worldUnits = 40;  // pixels per world unit in side view
 
@@ -43,6 +42,8 @@ void setup() {
   size(1000, 800, P3D);
   smooth(8);
   sphereDetail(24);
+  keybinds = new Keybinds();
+  keybinds.load();
   level = new Level(levelFile);
   resetPlayer();
   lastMillis = millis();
@@ -101,6 +102,13 @@ void draw() {
     return;
   }
 
+  // opened from the main menu there is no world behind it
+  if (state == SETTINGS && settingsMenu.returnState == MAIN_MENU) {
+    hint(DISABLE_DEPTH_TEST);
+    settingsMenu.display();
+    return;
+  }
+
   if (state == EDITOR) {
     // the editor sets up its own depth testing for the world and its overlays
     editor.update(dt);
@@ -121,6 +129,7 @@ void draw() {
   if (state == PAUSED) pauseMenu.display();
   if (state == WON) winMenu.display();
   if (state == DEAD) displayDeath();
+  if (state == SETTINGS) settingsMenu.display();
 }
 
 // Frozen world behind a dimmed "You Died" message and a countdown to the restart
@@ -141,6 +150,13 @@ void displayDeath() {
 }
 
 void keyPressed() {
+  // first, so Esc can cancel a rebind and any other key can be bound
+  if (state == SETTINGS) {
+    if (settingsMenu.keyPressed()) state = settingsMenu.returnState;
+    if (key == ESC) key = 0;  // stop Processing from closing the sketch
+    return;
+  }
+
   if (key == ESC) {
     key = 0;  // stop Processing from closing the sketch
     if (state == PLAYING) state = PAUSED;
@@ -177,7 +193,7 @@ void keyPressed() {
     if (choice.equals("Play")) {
       openLevelSelect(false);
     } else if (choice.equals("Settings")) {
-      // TODO: settings menu
+      openSettings();
     } else if (choice.equals("Level Creator")) {
       openLevelSelect(true);
     } else if (choice.equals("Quit")) {
@@ -187,27 +203,14 @@ void keyPressed() {
   }
 
   if (state == PLAYING) {
-    // the down flags ignore key repeat, so holding a key only triggers once
-    if (key == ' ' && !spaceDown) {
-      spaceDown = true;
-      player.jump();
-    }
-
-    if ((key == 'r' || key == 'R') && !rDown) {
-      rDown = true;
-      player.toggleShift();
-    }
-    // one lane per tap (iso only; the player ignores it in side view)
-    char k = Character.toLowerCase(key);
-    // A/D are left/right relative to the run direction (+x): left is -z, right is +z
-    if (k == 'a' && !aDown) {
-      aDown = true;
-      player.changeLane(-1);
-    }
-    if (k == 'd' && !dDown) {
-      dDown = true;
-      player.changeLane(1);
-    }
+    // keybinds.pressed() ignores key repeat, so holding a key only triggers once
+    int action = keybinds.pressed();
+    if (action == ACT_JUMP) player.jump();
+    if (action == ACT_SHIFT) player.toggleShift();
+    // one lane per tap (iso only; the player ignores it in side view).
+    // Left/right are relative to the run direction (+x): left is -z, right is +z
+    if (action == ACT_LANE_LEFT) player.changeLane(-1);
+    if (action == ACT_LANE_RIGHT) player.changeLane(1);
   } else if (state == PAUSED) {
     String choice = pauseMenu.keyPressed();
     if (choice == null) return;
@@ -218,7 +221,7 @@ void keyPressed() {
       pauseMenu.selected = 0;
       openLevelSelect(false);
     } else if (choice.equals("Settings")) {
-      // TODO: settings menu
+      openSettings();
     } else if (choice.equals("Main Menu")) {
       pauseMenu.selected = 0;  // highlight "Resume" next time the game is paused
       state = MAIN_MENU;
@@ -226,6 +229,12 @@ void keyPressed() {
       exit();
     }
   }
+}
+
+// Settings goes back to whichever menu opened it
+void openSettings() {
+  settingsMenu.open(state);
+  state = SETTINGS;
 }
 
 void openLevelSelect(boolean editMode) {
@@ -261,15 +270,15 @@ void exitEditor() {
 }
 
 void keyReleased() {
-  if (key == ' ') spaceDown = false;
-  if (key == 'a' || key == 'A') aDown = false;
-  if (key == 'd' || key == 'D') dDown = false;
-  if (key == 'r' || key == 'R') rDown = false;
+  keybinds.released();
   if (state == EDITOR) editor.keyReleased();
 }
 
 void mousePressed() {
   if (state == EDITOR) editor.mousePressed();
+  else if (state == SETTINGS && mouseButton == LEFT) {
+    if (settingsMenu.mousePressed()) state = settingsMenu.returnState;
+  }
   else if (state == LEVEL_SELECT && mouseButton == LEFT) {
     String file = levelSelect.mousePressed();
     if (file != null) chooseLevel(file);
