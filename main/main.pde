@@ -16,6 +16,10 @@ final int MAIN_MENU = 2;
 final int EDITOR = 3;
 final int LEVEL_SELECT = 4;
 final int WON = 5;
+final int DEAD = 6;
+
+final int DEATH_DELAY = 3000;  // ms the "You Died" screen shows before the restart
+int deathMillis;
 
 int state = MAIN_MENU;
 
@@ -64,13 +68,19 @@ void draw() {
   if (state == PLAYING) {
     level.update(dt);
     player.update(dt);
-    if (!player.alive) resetPlayer();
+    if (!player.alive) {
+      state = DEAD;
+      deathMillis = millis();
+    }
     else if (player.pos.x >= level.goal.x) {
       // crossing the goal's line counts, in any lane and either view
       winMenu.open(levelFile);
       state = WON;
     }
     cam.lerp(camTarget(), 1 - exp(-dt * 8));
+  } else if (state == DEAD && millis() - deathMillis >= DEATH_DELAY) {
+    resetPlayer();
+    state = PLAYING;
   }
 
   background(20);
@@ -110,6 +120,24 @@ void draw() {
   hint(DISABLE_DEPTH_TEST);
   if (state == PAUSED) pauseMenu.display();
   if (state == WON) winMenu.display();
+  if (state == DEAD) displayDeath();
+}
+
+// Frozen world behind a dimmed "You Died" message and a countdown to the restart
+void displayDeath() {
+  noStroke();
+  fill(0, 150);
+  rect(0, 0, width, height);
+
+  textAlign(CENTER, CENTER);
+  fill(255, 80, 80);
+  textSize(64);
+  text("You Died", width / 2, height * 0.4);
+
+  int left = ceil((DEATH_DELAY - (millis() - deathMillis)) / 1000.0);
+  fill(200);
+  textSize(28);
+  text("Restarting in " + max(left, 1), width / 2, height * 0.5);
 }
 
 void keyPressed() {
