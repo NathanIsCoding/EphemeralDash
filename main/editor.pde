@@ -49,6 +49,7 @@ final float ICON_DRAW = 24;  // pixels; matches the images, so they are not resa
 final int TOOL_BUILD = 0, TOOL_SELECT = 1, TOOL_FILL = 2, TOOL_SPAWN = 3, TOOL_GOAL = 4;
 final color SPAWN_COLOR = #FF5050, GOAL_COLOR = #50DC78;
 final int MAX_FILL = 100;  // cells per side of one fill, so a slip of the mouse cannot place thousands
+final float EXTRUDE_COS = 0.9;  // how closely a drag must follow a face normal on screen to extrude from it
 
 class Editor {
   String file;
@@ -67,10 +68,14 @@ class Editor {
   HashSet<Cell> selBase;      // selection before this drag, kept when Shift is held
   boolean shiftDown;
 
-  // Fill tool: a rectangle of cells in the layer fillStart[fillAxis]
+  // Fill tool: a line or rectangle of cells from fillStart to fillEnd
   boolean filling;
-  int fillAxis;
   int[] fillStart, fillEnd;
+  int fillAxis;            // axis of the clicked face's normal; the flat fill keeps it fixed
+  int fillOut;             // +1 or -1: which way along fillAxis is out of the face
+  boolean fillCanExtrude;  // false when the face points at the camera
+  boolean fillExtruding;   // this drag is building out of the face, not flat against it
+  float fillPressX, fillPressY;  // screen pixel where the fill drag began
 
   boolean isIso = true;
   float t = 1;  // view blend, same meaning as Player.shiftT: side view flattens yaw and pitch
@@ -414,31 +419,97 @@ class Editor {
 
   // fill tool
 
-  // The fill grows in the layer just outside the clicked face. A face pointing
+  // The fill starts in the cell just outside the clicked face. A face pointing
   // straight at the camera (as in side view) cannot be built out from, the same
-  // as with handles, so then the fill stays in the clicked cell's own layer.
+  // as with handles, so then it starts from the clicked cell itself (which is
+  // skipped, being taken).
   void startFill(float sx, float sy) {
     Cell c = cellAt(sx, sy);
     if (c == null) return;
     int[] d = DIRS[faceAt(c, sx, sy)];
     boolean facing = abs(dirDot(d, view().eye())) >= 0.95;
     fillAxis = axisOf(d);
+    fillOut = d[fillAxis];
+    fillCanExtrude = !facing;
+    fillExtruding = false;
     fillStart = facing ? new int[] { c.x, c.y, c.z } : new int[] { c.x + d[0], c.y + d[1], c.z + d[2] };
     fillEnd = fillStart.clone();
+    fillPressX = sx;
+    fillPressY = sy;
     filling = true;
   }
 
-  // The mouse ray meets the fill layer's mid-plane; the cell there is the far corner
+  // The axis an extruded line widens along. On screen, sideways from the line could
+  // mean either of the two other axes, so: a line out of a side face widens flat,
+  // into a floor (along the other horizontal axis). A column widens along whichever
+  // of x / z the drag follows more closely. Holding Shift picks the other one.
+  int extrudeWidthAxis(OrthoView v, PVector drag) {
+    int a = (fillAxis + 1) % 3, b = (fillAxis + 2) % 3;  // the two candidates
+    int pick;
+    if (fillAxis != 1) {
+      pick = a == 1 ? b : a;  // the horizontal one
+    } else {
+      PVector ua = axisOnScreen(v, a), ub = axisOnScreen(v, b);
+      float ca = abs(drag.dot(ua)) / max(ua.mag(), 1e-6);
+      float cb = abs(drag.dot(ub)) / max(ub.mag(), 1e-6);
+      pick = ca >= cb ? a : b;
+    }
+    if (shiftDown) pick = pick == a ? b : a;
+    return pick;
+  }
+
+  // Screen pixels moved by one cell step along world axis a
+  PVector axisOnScreen(OrthoView v, int a) {
+    PVector e = v.rotate(new PVector(a == 0 ? 1 : 0, a == 1 ? 1 : 0, a == 2 ? 1 : 0));
+    return new PVector(e.x * v.s, -e.y * v.s);
+  }
+
+  // Two ways to fill:
+  // - Dragging straight out from the clicked face (along its normal, on screen)
+  //   extrudes a line out of it, e.g. a column up from a top face. Once started,
+  //   it stays an extrusion while it reaches at least one cell out, and dragging
+  //   sideways widens the line into a plane (see extrudeWidthAxis).
+  // - Any other drag fills a line or rectangle flat in the layer against the face:
+  //   the mouse ray meets the layer's mid-plane, and the cell there is the far corner.
   void dragFill(float sx, float sy) {
+    OrthoView v = view();
+    PVector drag = new PVector(sx - fillPressX, sy - fillPressY);
+    int[] e = fillStart.clone();
+
+    PVector n = axisOnScreen(v, fillAxis);
+    boolean usableN = fillCanExtrude && drag.mag() > 4 && n.mag() > v.s * 0.3;
+    if (usableN && !fillExtruding && abs(drag.dot(n)) / (drag.mag() * n.mag()) > EXTRUDE_COS) {
+      fillExtruding = true;
+    }
+    if (usableN && fillExtruding) {
+      int b = extrudeWidthAxis(v, drag);
+      PVector w = axisOnScreen(v, b);
+      // split the drag exactly into steps out of the face (along n) and sideways (along w)
+      float det = n.x * w.y - n.y * w.x;
+      float out = drag.dot(n) / n.magSq(), side = 0;
+      if (abs(det) > 1e-3) {
+        out = (drag.x * w.y - drag.y * w.x) / det;
+        side = (n.x * drag.y - n.y * drag.x) / det;
+      }
+      // outward only: dragging back into the block would build through it
+      int steps = constrain(round(fillOut * out), 0, MAX_FILL - 1);
+      if (steps > 0) {
+        e[fillAxis] += fillOut * steps;
+        e[b] += constrain(round(side), -(MAX_FILL - 1), MAX_FILL - 1);
+        fillEnd = e;
+        return;
+      }
+      fillExtruding = false;  // pulled back to the face: free to start a flat fill
+    }
+
     PVector[] r = mouseRay(sx, sy);
     float da = getAxis(r[1], fillAxis);
     if (abs(da) < 0.05) return;  // looking along the layer edge-on: no sensible point
     float s = (fillStart[fillAxis] + 0.5 - getAxis(r[0], fillAxis)) / da;
     PVector p = PVector.add(r[0], PVector.mult(r[1], s));
-    int[] e = { floor(p.x), floor(p.y), floor(p.z) };
+    int[] hit = { floor(p.x), floor(p.y), floor(p.z) };
     for (int a = 0; a < 3; a++) {
-      if (a == fillAxis) e[a] = fillStart[a];
-      else e[a] = constrain(e[a], fillStart[a] - (MAX_FILL - 1), fillStart[a] + (MAX_FILL - 1));
+      if (a != fillAxis) e[a] = constrain(hit[a], fillStart[a] - (MAX_FILL - 1), fillStart[a] + (MAX_FILL - 1));
     }
     fillEnd = e;
   }
