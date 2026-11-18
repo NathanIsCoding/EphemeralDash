@@ -27,6 +27,7 @@ PauseMenu pauseMenu = new PauseMenu();
 MainMenu mainMenu = new MainMenu();
 LevelSelect levelSelect = new LevelSelect();
 WinMenu winMenu = new WinMenu();
+Music music;  // made in setup(), after Minim
 DeathMenu deathMenu = new DeathMenu();
 SettingsMenu settingsMenu = new SettingsMenu();
 Keybinds keybinds;  // made in setup(): it needs DEFAULT_KEYS from settings.pde, which is set up after this tab's globals
@@ -44,7 +45,9 @@ void setup() {
   smooth(8);
   sphereDetail(24);
   keybinds = new Keybinds();
-  keybinds.load();
+  minim = new Minim(this);
+  music = new Music();
+  loadSettings();  // keys and music volume
   level = new Level(levelFile);
   resetPlayer();
   lastMillis = millis();
@@ -73,6 +76,7 @@ void draw() {
     if (!player.alive) {
       state = DEAD;
       deathMillis = millis();
+      music.stop();
       deathMenu.selected = 0;  // "Retry"
     }
     else if (player.pos.x >= level.goal.x) {
@@ -82,8 +86,7 @@ void draw() {
     }
     cam.lerp(camTarget(), 1 - exp(-dt * 8));
   } else if (state == DEAD && millis() - deathMillis >= DEATH_DELAY) {
-    resetPlayer();
-    state = PLAYING;
+    startAttempt();
   }
 
   background(20);
@@ -150,8 +153,8 @@ void keyPressed() {
 
   if (key == ESC) {
     key = 0;  // stop Processing from closing the sketch
-    if (state == PLAYING) state = PAUSED;
-    else if (state == PAUSED) state = PLAYING;
+    if (state == PLAYING) pauseGame();
+    else if (state == PAUSED) resumeGame();
     else if (state == EDITOR) editor.escape();
     else if (state == LEVEL_SELECT) state = MAIN_MENU;
     else if (state == WON || state == DEAD) openLevelSelect(false);
@@ -211,7 +214,7 @@ void chooseMain(String choice) {
 void choosePause(String choice) {
   if (choice == null) return;
   if (choice.equals("Resume")) {
-    state = PLAYING;
+    resumeGame();
   } else if (choice.equals("Level Select")) {
     pauseMenu.selected = 0;
     openLevelSelect(false);
@@ -219,6 +222,7 @@ void choosePause(String choice) {
     openSettings();
   } else if (choice.equals("Main Menu")) {
     pauseMenu.selected = 0;  // highlight "Resume" next time the game is paused
+    music.stop();
     state = MAIN_MENU;
   } else if (choice.equals("Quit")) {
     exit();
@@ -234,8 +238,7 @@ void chooseWin(String choice) {
 void chooseDeath(String choice) {
   if (choice == null) return;
   if (choice.equals("Retry")) {
-    resetPlayer();
-    state = PLAYING;
+    startAttempt();
   } else if (choice.equals("Level Select")) {
     openLevelSelect(false);
   }
@@ -248,6 +251,7 @@ void openSettings() {
 }
 
 void openLevelSelect(boolean editMode) {
+  music.stop();
   levelSelect.open(editMode);
   state = LEVEL_SELECT;
 }
@@ -267,8 +271,24 @@ void chooseLevel(String file) {
 void playLevel(String file) {
   levelFile = file;
   level = new Level(levelFile);
+  startAttempt();
+}
+
+// A fresh try at the current level: player back at the spawn, music from the top
+void startAttempt() {
   resetPlayer();
   state = PLAYING;
+  music.start(level.music);
+}
+
+void pauseGame() {
+  state = PAUSED;
+  music.pause();
+}
+
+void resumeGame() {
+  state = PLAYING;
+  music.resume();
 }
 
 // Back to the level list to pick the next one. Does not save: the editor asks about
@@ -305,10 +325,12 @@ void mousePressed() {
 
 void mouseDragged() {
   if (state == EDITOR) editor.mouseDragged();
+  else if (state == SETTINGS) settingsMenu.mouseDragged();
 }
 
 void mouseReleased() {
   if (state == EDITOR) editor.mouseReleased();
+  else if (state == SETTINGS) settingsMenu.mouseReleased();
 }
 
 void mouseWheel(MouseEvent event) {

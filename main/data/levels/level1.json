@@ -1,5 +1,6 @@
 {
   "name": "Level 1",
+  "music": "Lets Go House NCS.mp3",
   "spawn": [-1.5, 0, 1.5],
   "goal": [98.5, 0, 1.5],
   "platforms": [

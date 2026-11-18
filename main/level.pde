@@ -2,6 +2,7 @@ final float KILL_DEPTH = 5;  // world units below the level's lowest point
 
 class Level {
   String name;
+  String music;  // track file in data/music, or null for none
   PVector spawn, goal;
   float killY;  // the player dies below this height
   ArrayList<GameObject> objects = new ArrayList<GameObject>(); // static world objects, used for collision
@@ -13,6 +14,7 @@ class Level {
   Level(String file) {
     JSONObject json = loadJSONObject("levels/" + file);
     name = json.getString("name", file);
+    music = json.getString("music", null);
     spawn = readVec(json.getJSONArray("spawn"));
     goal = readVec(json.getJSONArray("goal"));
 

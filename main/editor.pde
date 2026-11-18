@@ -18,7 +18,7 @@ final float MAX_PITCH = radians(89);  // stop just short of straight up or down
 final float TB_X = 12, TB_Y = 12;
 final float TB_BUTTON = 40, TB_GAP = 6, TB_SEP = 18, TB_PAD = 6;
 // "|" is a separator between groups
-final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "cannon", "|", "spawn", "goal", "|", "view", "save", "help", "exit" };
+final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "cannon", "|", "spawn", "goal", "|", "music", "view", "save", "help", "exit" };
 final String[] HELP_LINES = {
   "Build [B]: click a block, then a handle to add",
   "Select [V]: drag between blocks to box-select, Shift adds",
@@ -43,6 +43,7 @@ final String[][] ICON_FILES = {
   { "view_side", "square" },
   { "save",      "save" },
   { "help",      "help" },
+  { "music",     "music_note_add" },
   { "exit",      "logout" },
 };
 final float ICON_DRAW = 24;  // pixels; matches the images, so they are not resampled
@@ -98,6 +99,9 @@ class Editor {
   String message = "";
   int messageUntil = 0;
   boolean showHelp = false;
+  boolean showMusic = false;
+  String track;  // the level's music file in data/music, or null
+  MusicPanel musicPanel = new MusicPanel();
 
   HashMap<String, PImage> icons = new HashMap<String, PImage>();
 
@@ -124,6 +128,7 @@ class Editor {
     }
     JSONObject json = loadJSONObject("levels/" + file);
     name = json.getString("name", file);
+    track = json.getString("music", null);
     spawn = readVec(json.getJSONArray("spawn"));
     goal = readVec(json.getJSONArray("goal"));
     grid.addBoxes(json.getJSONArray("platforms"), BLOCK_PLATFORM);
@@ -192,6 +197,7 @@ class Editor {
     ArrayList<String> out = new ArrayList<String>();
     out.add("{");
     out.add("  \"name\": " + compactJSON(name) + ",");
+    if (track != null) out.add("  \"music\": " + compactJSON(track) + ",");  // left out when there is none
     out.add("  \"spawn\": " + compactJSON(vecJSON(spawn)) + ",");
     out.add("  \"goal\": " + compactJSON(vecJSON(goal)) + ",");
     addJSONList(out, "platforms", mergeBoxes(BLOCK_PLATFORM), true);
@@ -215,6 +221,7 @@ class Editor {
   void escape() {
     if (cancelTyping()) return;
     if (confirmExit) confirmExit = false;
+    else if (showMusic) showMusic = false;
     else requestExit();
   }
 
@@ -697,6 +704,68 @@ class Editor {
 
     float target = isIso ? 1 : 0;
     t += (target - t) * min(1, dt * 15);
+
+    // a track picked in the Import... file dialog (which reports on its own thread)
+    File picked = pickedMusicFile;
+    if (picked != null) {
+      pickedMusicFile = null;
+      importTrack(picked);
+    }
+  }
+
+  // music
+
+  void toggleMusicPanel() {
+    showMusic = !showMusic;
+    if (showMusic) {
+      showHelp = false;  // they open in the same spot
+      musicPanel.refresh();
+    }
+  }
+
+  // Positions the panel under the music button
+  void placeMusicPanel() {
+    float[] xs = toolXs();
+    for (int i = 0; i < TOOLS.length; i++) if (TOOLS[i].equals("music")) musicPanel.x = xs[i];
+    musicPanel.x = min(musicPanel.x, width - MP_W - TB_X);
+    musicPanel.y = TB_Y + toolbarHeight() + 8;
+  }
+
+  void setTrack(String t) {
+    boolean wasPreviewing = music.playing();
+    track = t;
+    if (wasPreviewing && t != null) music.start(t);  // keep previewing, now the new track
+    else music.stop();
+  }
+
+  void importTrack(File f) {
+    if (!isMusicFile(f.getName())) {
+      flash("Pick an .mp3 or .wav file");
+      return;
+    }
+    String name = importMusic(f);
+    if (name == null) {
+      flash("Could not import " + f.getName());
+      return;
+    }
+    musicPanel.refresh();
+    setTrack(name);
+    flash("Imported " + name);
+  }
+
+  void musicPanelPressed() {
+    int row = musicPanel.rowAt(mouseX, mouseY);
+    if (row >= 0) {
+      setTrack(musicPanel.trackFor(row));
+      return;
+    }
+    int b = musicPanel.buttonAt(mouseX, mouseY);
+    if (b == 0) {
+      selectInput("Choose a music track (.mp3 or .wav)", "musicFileChosen");
+    } else if (b == 1 && track != null) {
+      if (music.playing()) music.stop();
+      else music.start(track);
+    }
   }
 
   void display() {
@@ -870,6 +939,10 @@ class Editor {
   boolean overUI(float mx, float my) {
     if (inRect(mx, my, TB_X, TB_Y, toolbarWidth(), toolbarHeight())) return true;
     if (cannonPanel.over(mx, my) && !targetCannons().isEmpty()) return true;
+    if (showMusic) {
+      placeMusicPanel();
+      if (musicPanel.over(mx, my)) return true;
+    }
     if (showHelp) {
       float[] r = helpRect();
       if (inRect(mx, my, r[0], r[1], r[2], r[3])) return true;
@@ -894,7 +967,11 @@ class Editor {
     else if (id.equals("cannon")) brush = BLOCK_CANNON;
     else if (id.equals("view")) toggleView();
     else if (id.equals("save")) save();
-    else if (id.equals("help")) showHelp = !showHelp;
+    else if (id.equals("music")) toggleMusicPanel();
+    else if (id.equals("help")) {
+      showHelp = !showHelp;
+      if (showHelp) showMusic = false;  // they open in the same spot
+    }
     else if (id.equals("exit")) requestExit();
   }
 
@@ -910,6 +987,7 @@ class Editor {
     if (id.equals("spike")) return brush == BLOCK_SPIKE;
     if (id.equals("cannon")) return brush == BLOCK_CANNON;
     if (id.equals("help")) return showHelp;
+    if (id.equals("music")) return showMusic;
     return false;
   }
 
@@ -927,6 +1005,7 @@ class Editor {
     if (id.equals("view")) return (isIso ? "Switch to side view" : "Switch to iso view") + "  [R]";
     if (id.equals("save")) return "Save  [Enter]";
     if (id.equals("help")) return "Controls";
+    if (id.equals("music")) return "Level music" + (track != null ? ": " + track : "");
     if (id.equals("exit")) return "Exit  [Esc]";
     return "";
   }
@@ -967,6 +1046,10 @@ class Editor {
     else cannonPanel.cancel();  // the cannons it was editing are no longer targeted
 
     if (showHelp) drawHelp();
+    if (showMusic) {
+      placeMusicPanel();
+      musicPanel.display(track, music.playing());
+    }
     if (hoverTool >= 0) drawTooltip(toolTip(TOOLS[hoverTool]), xs[hoverTool], TB_Y + toolbarHeight() + 8);
     if (millis() < messageUntil) {
       textSize(14);
@@ -1039,6 +1122,16 @@ class Editor {
       triangle(cx, cy - 11, cx - 11, cy + 7, cx, cy + 11);
       fill(SPIKE_COLORS[1]);
       triangle(cx, cy - 11, cx, cy + 11, cx + 11, cy + 7);
+    } else if (id.equals("music")) {
+      // tinted gold when the level has a track
+      PImage img = icons.get("music");
+      if (img == null) return;
+      imageMode(CENTER);
+      if (track != null) tint(255, 200, 60);
+      else noTint();
+      image(img, cx, cy, ICON_DRAW, ICON_DRAW);
+      noTint();
+      imageMode(CORNER);
     } else if (id.equals("view")) {
       // shows the view you are in: a cube for iso, a flat square for side
       drawIcon(isIso ? "view_iso" : "view_side", cx, cy);
@@ -1090,6 +1183,14 @@ class Editor {
     }
     // clicking anywhere else finishes typing, before the click can change the selection
     cannonPanel.commit(cannons);
+
+    if (showMusic) {
+      placeMusicPanel();
+      if (musicPanel.over(mouseX, mouseY)) {
+        if (mouseButton == LEFT) musicPanelPressed();
+        return;
+      }
+    }
 
     // the toolbar and help panel swallow clicks so they never edit the level behind them
     if (overUI(mouseX, mouseY)) {
@@ -1181,6 +1282,13 @@ class Editor {
 
   void mouseWheel(float count) {
     if (confirmExit) return;
+    if (showMusic) {
+      placeMusicPanel();
+      if (musicPanel.over(mouseX, mouseY)) {
+        musicPanel.wheel(count);  // scroll the track list instead of zooming
+        return;
+      }
+    }
     zoomAt(pow(1.1, -count), mouseX, mouseY);
   }
 
