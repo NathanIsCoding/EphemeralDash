@@ -56,6 +56,14 @@ final int[][] DIRS = {
 // BLOCK_COLORS entry for each of DIRS
 final int[] DIR_COLOR = { 0, 0, 2, 2, 1, 1 };
 
+// The goal line: blocks in the goal's column get a finish-line checkerboard,
+// CHECKER_N squares per cell edge, shaded per face like BLOCK_COLORS
+final int CHECKER_N = 4;
+final int[][] CHECKER_COLORS = {
+  { #B4B4BE, #D2D2DC, #F0F0FA },  // light squares
+  { #1E1E24, #2D2D36, #41414C },  // dark squares
+};
+
 class Cell {
   int x, y, z, type;
   // cannons only: firing direction (index into DIRS) and timing
@@ -84,6 +92,7 @@ class Cell {
 
 class CellGrid {
   HashMap<String, Cell> cells = new HashMap<String, Cell>();
+  int goalX = Integer.MIN_VALUE;  // x of the goal's column of cells (drawn checkered); none by default
   ArrayList<Cell> order;  // far-to-near draw order, rebuilt only when cells change
   // Cells drawn partly transparent. They do not hide their neighbours' faces,
   // or the background would show through them where those faces were skipped.
@@ -174,6 +183,37 @@ class CellGrid {
     return !solidAt(c.x + d[0], c.y + d[1], c.z + d[2]);
   }
 
+  // Like cellFaces, but each face is split into CHECKER_N x CHECKER_N squares.
+  // The colour alternates in all three directions (a 3D checkerboard sampled on the
+  // faces), so the pattern lines up across neighbouring blocks and round corners.
+  void checkerFaces(int x, int y, int z, float alpha, PVector eye) {
+    float s = 1.0 / CHECKER_N;
+    for (int i = 0; i < DIRS.length; i++) {
+      int[] d = DIRS[i];
+      if (dirDot(d, eye) <= 0.001 || solidAt(x + d[0], y + d[1], z + d[2])) continue;
+      int a = d[0] != 0 ? 0 : d[1] != 0 ? 1 : 2;
+      int u = (a + 1) % 3, v = (a + 2) % 3;
+      int[] cell = { x, y, z };
+      // square index along the face's normal: the face plane's position, in squares
+      int w = (cell[a] + (d[a] > 0 ? 1 : 0)) * CHECKER_N;
+      for (int iu = 0; iu < CHECKER_N; iu++) {
+        for (int iv = 0; iv < CHECKER_N; iv++) {
+          int su = cell[u] * CHECKER_N + iu, sv = cell[v] * CHECKER_N + iv;
+          int dark = Math.floorMod(su + sv + w, 2);
+          fill(CHECKER_COLORS[dark][DIR_COLOR[i]], alpha);
+          int[][] uv = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+          for (int[] c : uv) {
+            float[] p = { x, y, z };
+            p[a] += d[a] > 0 ? 1 : 0;
+            p[u] += (iu + c[0]) * s;
+            p[v] += (iv + c[1]) * s;
+            vertex(p[0], p[1], p[2]);
+          }
+        }
+      }
+    }
+  }
+
   // World-space corners of the face of cell (x, y, z) that points in direction d
   float[][] faceCorners(int x, int y, int z, int[] d) {
     int a = d[0] != 0 ? 0 : d[1] != 0 ? 1 : 2;  // axis the face is perpendicular to
@@ -203,6 +243,10 @@ class CellGrid {
   // dir only matters for cannons: their body stops CANNON_OUT short of the cell on the
   // firing side, so the muzzle and lip fit inside the cell, flush with its edge
   void cellFaces(int x, int y, int z, int type, int dir, float alpha, PVector eye) {
+    if (x == goalX && type != BLOCK_CANNON) {
+      checkerFaces(x, y, z, alpha, eye);
+      return;
+    }
     int[] cols = BLOCK_COLORS[type];
     int[] f = DIRS[dir];
     int fa = f[0] != 0 ? 0 : f[1] != 0 ? 1 : 2;

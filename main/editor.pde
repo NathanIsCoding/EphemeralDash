@@ -531,10 +531,20 @@ class Editor {
     return new PVector(c.x + 0.5, c.y + 1, c.z + 0.5);
   }
 
+  // The run goes in +x and is won by crossing the goal's x, so the goal must be
+  // ahead of the spawn: a goal behind it could never be reached (or would win at once)
+  boolean markerAllowed(PVector p) {
+    return tool == TOOL_SPAWN ? p.x < goal.x : p.x > spawn.x;
+  }
+
   void placeMarker(float sx, float sy) {
     PVector p = markerSpot(sx, sy);
     if (p == null) {
       flash("Click the top of a block with free space above it");
+      return;
+    }
+    if (!markerAllowed(p)) {
+      flash(tool == TOOL_SPAWN ? "The spawn must be before the goal" : "The goal must be ahead of the spawn");
       return;
     }
     if (tool == TOOL_SPAWN) spawn = p;
@@ -816,6 +826,7 @@ class Editor {
     int hover = overUI(mouseX, mouseY) ? -1 : handleAt(mouseX, mouseY);
 
     // the level, in world space
+    grid.goalX = floor(goal.x);  // checkered goal line, following the goal as it is moved
     hint(ENABLE_DEPTH_TEST);
     pushMatrix();
     v.apply();
@@ -853,7 +864,8 @@ class Editor {
     drawMarker(goal, GOAL_COLOR, v);
     if ((tool == TOOL_SPAWN || tool == TOOL_GOAL) && !overUI(mouseX, mouseY)) {
       PVector p = markerSpot(mouseX, mouseY);
-      if (p != null) drawMarker(p, color(tool == TOOL_SPAWN ? SPAWN_COLOR : GOAL_COLOR, 110), v);
+      // a spot the marker cannot go shows as a faint grey ring
+      if (p != null) drawMarker(p, markerAllowed(p) ? color(tool == TOOL_SPAWN ? SPAWN_COLOR : GOAL_COLOR, 110) : color(150, 70), v);
     }
     if (tool == TOOL_BUILD && selected != null) drawHandles(hover, v);
     // P3D draws a batch's outlines after its fills, so without these flushes the

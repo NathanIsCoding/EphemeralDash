@@ -21,6 +21,7 @@ class Level {
     music = json.getString("music", null);
     spawn = readVec(json.getJSONArray("spawn"));
     goal = readVec(json.getJSONArray("goal"));
+    grid.goalX = floor(goal.x);  // the goal line's blocks are drawn checkered
 
     JSONArray ps = json.getJSONArray("platforms");
     if (ps != null) {
