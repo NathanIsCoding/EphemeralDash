@@ -27,6 +27,7 @@ PauseMenu pauseMenu = new PauseMenu();
 MainMenu mainMenu = new MainMenu();
 LevelSelect levelSelect = new LevelSelect();
 WinMenu winMenu = new WinMenu();
+DeathMenu deathMenu = new DeathMenu();
 SettingsMenu settingsMenu = new SettingsMenu();
 Keybinds keybinds;  // made in setup(): it needs DEFAULT_KEYS from settings.pde, which is set up after this tab's globals
 
@@ -72,6 +73,7 @@ void draw() {
     if (!player.alive) {
       state = DEAD;
       deathMillis = millis();
+      deathMenu.selected = 0;  // "Retry"
     }
     else if (player.pos.x >= level.goal.x) {
       // crossing the goal's line counts, in any lane and either view
@@ -132,21 +134,10 @@ void draw() {
   if (state == SETTINGS) settingsMenu.display();
 }
 
-// Frozen world behind a dimmed "You Died" message and a countdown to the restart
+// Frozen world behind the death menu and a countdown to the restart
 void displayDeath() {
-  noStroke();
-  fill(0, 150);
-  rect(0, 0, width, height);
-
-  textAlign(CENTER, CENTER);
-  fill(255, 80, 80);
-  textSize(64);
-  text("You Died", width / 2, height * 0.4);
-
   int left = ceil((DEATH_DELAY - (millis() - deathMillis)) / 1000.0);
-  fill(200);
-  textSize(28);
-  text("Restarting in " + max(left, 1), width / 2, height * 0.5);
+  deathMenu.display(max(left, 1));
 }
 
 void keyPressed() {
@@ -161,9 +152,14 @@ void keyPressed() {
     key = 0;  // stop Processing from closing the sketch
     if (state == PLAYING) state = PAUSED;
     else if (state == PAUSED) state = PLAYING;
-    else if (state == EDITOR) exitEditor();
+    else if (state == EDITOR) editor.escape();
     else if (state == LEVEL_SELECT) state = MAIN_MENU;
-    else if (state == WON) openLevelSelect(false);
+    else if (state == WON || state == DEAD) openLevelSelect(false);
+    return;
+  }
+
+  if (state == DEAD) {
+    chooseDeath(deathMenu.keyPressed());
     return;
   }
 
@@ -179,26 +175,12 @@ void keyPressed() {
   }
 
   if (state == WON) {
-    String choice = winMenu.keyPressed();
-    if (choice == null) return;
-    if (choice.equals("Next Level")) playLevel(winMenu.nextFile);
-    else if (choice.equals("Level Select")) openLevelSelect(false);
+    chooseWin(winMenu.keyPressed());
     return;
   }
 
   if (state == MAIN_MENU) {
-    String choice = mainMenu.keyPressed();
-    if (choice == null) return;
-
-    if (choice.equals("Play")) {
-      openLevelSelect(false);
-    } else if (choice.equals("Settings")) {
-      openSettings();
-    } else if (choice.equals("Level Creator")) {
-      openLevelSelect(true);
-    } else if (choice.equals("Quit")) {
-      exit();
-    }
+    chooseMain(mainMenu.keyPressed());
     return;
   }
 
@@ -212,22 +194,50 @@ void keyPressed() {
     if (action == ACT_LANE_LEFT) player.changeLane(-1);
     if (action == ACT_LANE_RIGHT) player.changeLane(1);
   } else if (state == PAUSED) {
-    String choice = pauseMenu.keyPressed();
-    if (choice == null) return;
+    choosePause(pauseMenu.keyPressed());
+  }
+}
 
-    if (choice.equals("Resume")) {
-      state = PLAYING;
-    } else if (choice.equals("Level Select")) {
-      pauseMenu.selected = 0;
-      openLevelSelect(false);
-    } else if (choice.equals("Settings")) {
-      openSettings();
-    } else if (choice.equals("Main Menu")) {
-      pauseMenu.selected = 0;  // highlight "Resume" next time the game is paused
-      state = MAIN_MENU;
-    } else if (choice.equals("Quit")) {
-      exit();
-    }
+// What each menu's items do. Called with the item picked by key or click (or null for none).
+
+void chooseMain(String choice) {
+  if (choice == null) return;
+  if (choice.equals("Play")) openLevelSelect(false);
+  else if (choice.equals("Settings")) openSettings();
+  else if (choice.equals("Level Creator")) openLevelSelect(true);
+  else if (choice.equals("Quit")) exit();
+}
+
+void choosePause(String choice) {
+  if (choice == null) return;
+  if (choice.equals("Resume")) {
+    state = PLAYING;
+  } else if (choice.equals("Level Select")) {
+    pauseMenu.selected = 0;
+    openLevelSelect(false);
+  } else if (choice.equals("Settings")) {
+    openSettings();
+  } else if (choice.equals("Main Menu")) {
+    pauseMenu.selected = 0;  // highlight "Resume" next time the game is paused
+    state = MAIN_MENU;
+  } else if (choice.equals("Quit")) {
+    exit();
+  }
+}
+
+void chooseWin(String choice) {
+  if (choice == null) return;
+  if (choice.equals("Next Level")) playLevel(winMenu.nextFile);
+  else if (choice.equals("Level Select")) openLevelSelect(false);
+}
+
+void chooseDeath(String choice) {
+  if (choice == null) return;
+  if (choice.equals("Retry")) {
+    resetPlayer();
+    state = PLAYING;
+  } else if (choice.equals("Level Select")) {
+    openLevelSelect(false);
   }
 }
 
@@ -261,11 +271,13 @@ void playLevel(String file) {
   state = PLAYING;
 }
 
-// Save the edited level, then go back to the level list to pick the next one
+// Back to the level list to pick the next one. Does not save: the editor asks about
+// unsaved changes before calling this. A new level that was never saved has no file.
 void exitEditor() {
-  editor.save();
-  level = new Level(levelFile);
-  resetPlayer();
+  if (levelExists(levelFile)) {
+    level = new Level(levelFile);
+    resetPlayer();
+  }
   openLevelSelect(true);
 }
 
@@ -283,7 +295,12 @@ void mousePressed() {
     String file = levelSelect.mousePressed();
     if (file != null) chooseLevel(file);
   }
-  else if (state == PLAYING && mouseButton == LEFT) player.jump();  // same as space
+  else if (mouseButton != LEFT) return;
+  else if (state == MAIN_MENU) chooseMain(mainMenu.mousePressed());
+  else if (state == PAUSED) choosePause(pauseMenu.mousePressed());
+  else if (state == WON) chooseWin(winMenu.mousePressed());
+  else if (state == DEAD) chooseDeath(deathMenu.mousePressed());
+  else if (state == PLAYING) player.jump();  // same as space
 }
 
 void mouseDragged() {

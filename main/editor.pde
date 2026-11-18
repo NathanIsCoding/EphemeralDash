@@ -25,6 +25,7 @@ final String[] HELP_LINES = {
   "Fill [F]: drag across a block face to place a line or plane",
   "Spawn [P] / Goal [G]: click a block to place it on top",
   "T: turn the selected cannon(s) a quarter turn",
+  "Select cannon(s) to set their timing in the bottom-left panel",
   "Right click / Delete: remove (the whole selection if any)",
   "WASD / right drag: pan",
   "Wheel: zoom",
@@ -48,6 +49,10 @@ final float ICON_DRAW = 24;  // pixels; matches the images, so they are not resa
 
 final int TOOL_BUILD = 0, TOOL_SELECT = 1, TOOL_FILL = 2, TOOL_SPAWN = 3, TOOL_GOAL = 4;
 final color SPAWN_COLOR = #FF5050, GOAL_COLOR = #50DC78;
+// unsaved-changes dialog
+final String[] EXIT_CHOICES = { "save", "discard", "cancel" };
+final String[] EXIT_LABELS = { "Save & Exit", "Discard", "Cancel" };
+final float DLG_BUTTON_W = 124, DLG_BUTTON_H = 36, DLG_GAP = 12;
 final int MAX_FILL = 100;  // cells per side of one fill, so a slip of the mouse cannot place thousands
 final float EXTRUDE_COS = 0.9;  // how closely a drag must follow a face normal on screen to extrude from it
 
@@ -87,6 +92,9 @@ class Editor {
   float dragStartX, dragStartY, lastDragX, lastDragY;
   boolean panLeft, panRight, panUp, panDown, rotLeft, rotRight, viewKeyDown;
 
+  CannonPanel cannonPanel = new CannonPanel();
+  String savedText;            // serialize() output as of the last save (or when opened), for isDirty()
+  boolean confirmExit = false; // the unsaved-changes dialog is open
   String message = "";
   int messageUntil = 0;
   boolean showHelp = false;
@@ -99,6 +107,7 @@ class Editor {
       icons.put(f[0], loadImage("icons/" + f[1] + "_" + ICON_SIZE + ".png"));
     }
     load();
+    savedText = join(serialize(), "\n");  // an untouched level (even a new one) has nothing to save
     cam = spawn.copy();
   }
 
@@ -138,6 +147,20 @@ class Editor {
   }
 
   void save() {
+    String[] lines = serialize();
+    saveStrings(dataPath("levels/" + file), lines);
+    savedText = join(lines, "\n");
+    flash("Saved " + file);
+  }
+
+  // Unsaved changes: the level as it would be saved now differs from the last save
+  // (or from how it was when opened). Comparing the output catches every kind of edit.
+  boolean isDirty() {
+    return !join(serialize(), "\n").equals(savedText);
+  }
+
+  // The level file's lines, in the normal level format
+  String[] serialize() {
     JSONArray ds = new JSONArray();
     for (Cell c : sortedCells()) {
       if (c.type != BLOCK_DOT) continue;
@@ -177,9 +200,83 @@ class Editor {
     addJSONList(out, "spikes", ss, true);
     addJSONList(out, "cannons", ns, false);
     out.add("}");
+    return out.toArray(new String[0]);
+  }
 
-    saveStrings(dataPath("levels/" + file), out.toArray(new String[0]));
-    flash("Saved " + file);
+  // exit, with a warning when there are unsaved changes
+
+  // The exit button and Esc
+  void requestExit() {
+    if (isDirty()) confirmExit = true;
+    else exitEditor();
+  }
+
+  // Esc backs out of whatever is open, innermost first
+  void escape() {
+    if (cancelTyping()) return;
+    if (confirmExit) confirmExit = false;
+    else requestExit();
+  }
+
+  void answerExit(String choice) {
+    confirmExit = false;
+    if (choice.equals("save")) {
+      save();
+      exitEditor();
+    } else if (choice.equals("discard")) {
+      exitEditor();
+    }
+    // "cancel": back to editing
+  }
+
+  // x, y, w, h of dialog button i
+  float[] exitButtonRect(int i) {
+    float total = EXIT_CHOICES.length * DLG_BUTTON_W + (EXIT_CHOICES.length - 1) * DLG_GAP;
+    return new float[] { (width - total) / 2 + i * (DLG_BUTTON_W + DLG_GAP), height / 2 + 10, DLG_BUTTON_W, DLG_BUTTON_H };
+  }
+
+  int exitButtonAt(float mx, float my) {
+    for (int i = 0; i < EXIT_CHOICES.length; i++) {
+      float[] r = exitButtonRect(i);
+      if (inRect(mx, my, r[0], r[1], r[2], r[3])) return i;
+    }
+    return -1;
+  }
+
+  void drawExitDialog() {
+    noStroke();
+    fill(0, 150);
+    rect(0, 0, width, height);
+
+    float w = 440, h = 140;
+    float x = (width - w) / 2, y = height / 2 - 80;
+    fill(30, 240);
+    stroke(255, 60);
+    strokeWeight(1);
+    rect(x, y, w, h, 10);
+
+    textAlign(CENTER, CENTER);
+    noStroke();
+    fill(255);
+    textSize(20);
+    text("Unsaved changes", width / 2, y + 30);
+    textSize(14);
+    fill(190);
+    text("Save " + file + " before leaving?", width / 2, y + 60);
+
+    int hover = exitButtonAt(mouseX, mouseY);
+    for (int i = 0; i < EXIT_CHOICES.length; i++) {
+      float[] r = exitButtonRect(i);
+      boolean primary = i == 0;  // highlighted as the usual choice
+      fill(i == hover ? color(255, 200, 60, 90) : primary ? color(255, 200, 60, 40) : color(255, 20));
+      stroke(primary || i == hover ? color(255, 200, 60) : color(255, 70));
+      strokeWeight(primary ? 2 : 1);
+      rect(r[0], r[1], r[2], r[3], 6);
+      noStroke();
+      fill(255);
+      textSize(15);
+      text(EXIT_LABELS[i], r[0] + r[2] / 2, r[1] + r[3] / 2 - 1);
+    }
   }
 
   // Writes "key": [ ... ] with one item per line
@@ -381,19 +478,31 @@ class Editor {
     }
   }
 
-  // Turns every cannon in the selection (or the build tool's cell) a quarter turn
-  void turnCannons() {
+  // The cannons in the selection, or the build tool's cell if it is a cannon
+  ArrayList<Cell> targetCannons() {
     ArrayList<Cell> targets = new ArrayList<Cell>(selection);
     if (targets.isEmpty() && selected != null) targets.add(selected);
-    int turned = 0;
-    for (Cell c : targets) {
-      if (c.type != BLOCK_CANNON) continue;
+    ArrayList<Cell> cannons = new ArrayList<Cell>();
+    for (Cell c : targets) if (c.type == BLOCK_CANNON) cannons.add(c);
+    return cannons;
+  }
+
+  // Turns every target cannon a quarter turn
+  void turnCannons() {
+    ArrayList<Cell> cannons = targetCannons();
+    for (Cell c : cannons) {
       int i = 0;
       while (i < CANNON_DIRS.length && CANNON_DIRS[i] != c.dir) i++;
       c.dir = CANNON_DIRS[(i + 1) % CANNON_DIRS.length];  // an unknown dir starts over at -x
-      turned++;
     }
-    if (turned == 0) flash("Select a cannon to turn it");
+    if (cannons.isEmpty()) flash("Select a cannon to turn it");
+  }
+
+  // Esc while typing in the cannon panel cancels the typing instead of leaving the editor
+  boolean cancelTyping() {
+    if (cannonPanel.editing < 0) return false;
+    cannonPanel.cancel();
+    return true;
   }
 
   // spawn / goal tools
@@ -636,7 +745,14 @@ class Editor {
       if (p != null) drawMarker(p, color(tool == TOOL_SPAWN ? SPAWN_COLOR : GOAL_COLOR, 110), v);
     }
     if (tool == TOOL_BUILD && selected != null) drawHandles(hover, v);
+    // P3D draws a batch's outlines after its fills, so without these flushes the
+    // marker rings above would show through the panels drawn over them
+    flush();
     drawHud();
+    if (confirmExit) {
+      flush();
+      drawExitDialog();
+    }
   }
 
   // A translucent preview of a brush cell. Call in world space with the depth mask off.
@@ -750,9 +866,10 @@ class Editor {
     return -1;
   }
 
-  // true over the toolbar or the help panel, where clicks should not reach the level
+  // true over the toolbar, help or cannon panel, where clicks should not reach the level
   boolean overUI(float mx, float my) {
     if (inRect(mx, my, TB_X, TB_Y, toolbarWidth(), toolbarHeight())) return true;
+    if (cannonPanel.over(mx, my) && !targetCannons().isEmpty()) return true;
     if (showHelp) {
       float[] r = helpRect();
       if (inRect(mx, my, r[0], r[1], r[2], r[3])) return true;
@@ -778,7 +895,7 @@ class Editor {
     else if (id.equals("view")) toggleView();
     else if (id.equals("save")) save();
     else if (id.equals("help")) showHelp = !showHelp;
-    else if (id.equals("exit")) exitEditor();
+    else if (id.equals("exit")) requestExit();
   }
 
   boolean toolActive(String id) {
@@ -810,7 +927,7 @@ class Editor {
     if (id.equals("view")) return (isIso ? "Switch to side view" : "Switch to iso view") + "  [R]";
     if (id.equals("save")) return "Save  [Enter]";
     if (id.equals("help")) return "Controls";
-    if (id.equals("exit")) return "Save and exit  [Esc]";
+    if (id.equals("exit")) return "Exit  [Esc]";
     return "";
   }
 
@@ -844,6 +961,10 @@ class Editor {
       }
       drawToolIcon(id, xs[i] + TB_BUTTON / 2, by + TB_BUTTON / 2);
     }
+
+    ArrayList<Cell> cannons = targetCannons();
+    if (!cannons.isEmpty()) cannonPanel.display(cannons);
+    else cannonPanel.cancel();  // the cannons it was editing are no longer targeted
 
     if (showHelp) drawHelp();
     if (hoverTool >= 0) drawTooltip(toolTip(TOOLS[hoverTool]), xs[hoverTool], TB_Y + toolbarHeight() + 8);
@@ -956,6 +1077,20 @@ class Editor {
   // input
 
   void mousePressed() {
+    // the dialog is modal: only its buttons respond
+    if (confirmExit) {
+      int b = exitButtonAt(mouseX, mouseY);
+      if (mouseButton == LEFT && b >= 0) answerExit(EXIT_CHOICES[b]);
+      return;
+    }
+    ArrayList<Cell> cannons = targetCannons();
+    if (!cannons.isEmpty() && cannonPanel.over(mouseX, mouseY)) {
+      if (mouseButton == LEFT) cannonPanel.mousePressed(cannons);
+      return;
+    }
+    // clicking anywhere else finishes typing, before the click can change the selection
+    cannonPanel.commit(cannons);
+
     // the toolbar and help panel swallow clicks so they never edit the level behind them
     if (overUI(mouseX, mouseY)) {
       int t = toolAt(mouseX, mouseY);
@@ -1006,6 +1141,11 @@ class Editor {
   }
 
   void mouseDragged() {
+    if (confirmExit) return;
+    if (cannonPanel.dragging >= 0) {
+      cannonPanel.mouseDragged(targetCannons());
+      return;
+    }
     if (leftDragging) {
       if (tool == TOOL_SELECT) dragSelect(mouseX, mouseY);
       else if (filling) dragFill(mouseX, mouseY);
@@ -1023,6 +1163,10 @@ class Editor {
   }
 
   void mouseReleased() {
+    if (cannonPanel.dragging >= 0 && mouseButton == LEFT) {
+      cannonPanel.dragging = -1;
+      return;
+    }
     if (leftDragging && mouseButton == LEFT) {
       leftDragging = false;
       if (filling) finishFill();
@@ -1036,10 +1180,17 @@ class Editor {
   }
 
   void mouseWheel(float count) {
+    if (confirmExit) return;
     zoomAt(pow(1.1, -count), mouseX, mouseY);
   }
 
   void keyPressed() {
+    if (confirmExit) return;  // answered with the mouse; Esc (cancel) is handled by escape()
+    // typing a value: keys like 1-5, Delete and Enter must not reach the tools
+    if (cannonPanel.editing >= 0) {
+      cannonPanel.keyPressed(targetCannons());
+      return;
+    }
     setKeys(key, true);
     if (key == CODED && keyCode == SHIFT) shiftDown = true;
 

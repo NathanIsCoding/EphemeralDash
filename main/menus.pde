@@ -20,6 +20,36 @@ class Menu {
     return null;
   }
 
+  // Returns the clicked item, or null
+  String mousePressed() {
+    int i = itemAt(mouseX, mouseY);
+    if (i < 0) return null;
+    selected = i;
+    return items[i];
+  }
+
+  float itemY(int i) {
+    return height * 0.45 + i * 50;
+  }
+
+  // Index of the item under the mouse, or -1. Each item's hit area is its text plus some padding.
+  int itemAt(float mx, float my) {
+    textSize(28);
+    for (int i = 0; i < items.length; i++) {
+      float halfW = textWidth(items[i]) / 2 + 20;
+      if (abs(mx - width / 2) < halfW && abs(my - itemY(i)) < 25) return i;
+    }
+    return -1;
+  }
+
+  // Hovering moves the highlight, but only when the mouse moves, so a resting
+  // mouse does not fight the keyboard (or grab the highlight the moment a menu opens)
+  void trackHover() {
+    if (mouseX == pmouseX && mouseY == pmouseY) return;
+    int i = itemAt(mouseX, mouseY);
+    if (i >= 0) selected = i;
+  }
+
   // Drawn in screen space (call outside the camera translate)
   void display() {
     // dim whatever is behind the menu
@@ -32,16 +62,11 @@ class Menu {
     textSize(48);
     text(title, width / 2, height * 0.3);
 
+    trackHover();
     textSize(28);
     for (int i = 0; i < items.length; i++) {
-      float y = height * 0.45 + i * 50;
-      if (i == selected) {
-        fill(255, 200, 60);
-        text(items[i], width / 2, y);
-      } else {
-        fill(200);
-        text(items[i], width / 2, y);
-      }
+      fill(i == selected ? color(255, 200, 60) : color(200));
+      text(items[i], width / 2, itemY(i));
     }
   }
 }
@@ -70,6 +95,41 @@ class WinMenu extends Menu {
     }
     items = nextFile != null ? new String[] { "Next Level", "Level Select" } : new String[] { "Level Select" };
     selected = 0;
+  }
+}
+
+// Shown when the player dies. The level restarts by itself when the countdown runs out,
+// unless the player picks something first.
+class DeathMenu extends Menu {
+  DeathMenu() {
+    super("You Died", new String[] { "Retry", "Level Select" });
+  }
+
+  void display(int secondsLeft) {
+    noStroke();
+    fill(0, 150);
+    rect(0, 0, width, height);
+
+    textAlign(CENTER, CENTER);
+    fill(255, 80, 80);
+    textSize(64);
+    text(title, width / 2, height * 0.35);
+
+    fill(200);
+    textSize(24);
+    text("Restarting in " + secondsLeft, width / 2, height * 0.45);
+
+    trackHover();
+    textSize(28);
+    for (int i = 0; i < items.length; i++) {
+      fill(i == selected ? color(255, 200, 60) : color(200));
+      text(items[i], width / 2, itemY(i));
+    }
+  }
+
+  // lower than the other menus, to leave room for the countdown
+  float itemY(int i) {
+    return height * 0.58 + i * 50;
   }
 }
 
