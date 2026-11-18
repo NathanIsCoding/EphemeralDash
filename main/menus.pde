@@ -98,8 +98,7 @@ class WinMenu extends Menu {
   }
 }
 
-// Shown when the player dies. The level restarts by itself when the countdown runs out,
-// unless the player picks something first.
+// Shown when the player dies. It stays until the player picks an option.
 class DeathMenu extends Menu {
   DeathMenu() {
     super("You Died", new String[] { "Retry", "Level Select" });
@@ -111,7 +110,8 @@ class DeathMenu extends Menu {
     selected = 0;
   }
 
-  void display(int secondsLeft) {
+  // like Menu.display, with a bigger red title
+  void display() {
     noStroke();
     fill(0, 150);
     rect(0, 0, width, height);
@@ -121,10 +121,6 @@ class DeathMenu extends Menu {
     textSize(64);
     text(title, width / 2, height * 0.35);
 
-    fill(200);
-    textSize(24);
-    text("Restarting in " + secondsLeft, width / 2, height * 0.45);
-
     trackHover();
     textSize(28);
     for (int i = 0; i < items.length; i++) {
@@ -133,9 +129,9 @@ class DeathMenu extends Menu {
     }
   }
 
-  // lower than the other menus, to leave room for the countdown
+  // a little lower than the other menus, under the bigger title
   float itemY(int i) {
-    return height * 0.58 + i * 50;
+    return height * 0.5 + i * 50;
   }
 }
 

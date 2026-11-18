@@ -15,9 +15,6 @@ final int WON = 5;
 final int DEAD = 6;
 final int SETTINGS = 7;
 
-final int DEATH_DELAY = 3000;  // ms the "You Died" screen shows before the restart
-int deathMillis;
-
 int state = MAIN_MENU;
 
 String levelFile = "level1.json";
@@ -74,8 +71,7 @@ void draw() {
     level.update(dt);
     player.update(dt);
     if (!player.alive) {
-      state = DEAD;
-      deathMillis = millis();
+      state = DEAD;  // stays until the player picks Retry or leaves
       music.stop();
       deathMenu.open(testing);
     }
@@ -90,8 +86,6 @@ void draw() {
       }
     }
     cam.lerp(camTarget(), 1 - exp(-dt * 8));
-  } else if (state == DEAD && millis() - deathMillis >= DEATH_DELAY) {
-    startAttempt();
   }
 
   background(20);
@@ -138,7 +132,7 @@ void draw() {
   hint(DISABLE_DEPTH_TEST);
   if (state == PAUSED) pauseMenu.display();
   if (state == WON) winMenu.display();
-  if (state == DEAD) displayDeath();
+  if (state == DEAD) deathMenu.display();
   if (state == SETTINGS) settingsMenu.display();
   if (testing) {
     flush();  // so the world's outlines cannot show through the bar (see Editor.display)
@@ -204,11 +198,6 @@ void drawTestBar() {
   text("x " + nf(player.pos.x, 1, 1) + "   Esc to stop", TEST_BTN_X + TEST_BTN_W + 100, TEST_BTN_Y + TEST_BTN_H / 2 - 1);
 }
 
-// Frozen world behind the death menu and a countdown to the restart
-void displayDeath() {
-  int left = ceil((DEATH_DELAY - (millis() - deathMillis)) / 1000.0);
-  deathMenu.display(max(left, 1));
-}
 
 void keyPressed() {
   // first, so Esc can cancel a rebind and any other key can be bound

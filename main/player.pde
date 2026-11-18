@@ -9,7 +9,7 @@ class Player extends GameObject {
 
   boolean alive = true;
   float runSpeed = 10;  // constant forward (+x) speed, world units per second
-  float laneSpeed = 1 / 0.05;  // lane change speed: one lane in 0.05 s
+  float laneSpeed = 1 / 0.08;  // lane change speed: one lane in 0.08 s (0.10s was previous going to test this new speed)
   float gravity = 35;  // world units per second squared
   float jumpHeight = 2.2;  // world units (peak above take-off)
   float maxFall = 20;  // terminal velocity, world units per second
