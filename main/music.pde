@@ -135,16 +135,44 @@ String importMusic(File src) {
   }
 }
 
+// Saved levels (other than `except`) whose file names `track` as their music
+ArrayList<String> levelsUsingTrack(String track, String except) {
+  ArrayList<String> using = new ArrayList<String>();
+  String[] files = new File(dataPath("levels")).list();
+  if (files == null) return using;
+  for (String f : files) {
+    if (!f.toLowerCase().endsWith(".json") || f.equals(except)) continue;
+    try {
+      JSONObject json = loadJSONObject("levels/" + f);
+      if (json != null && track.equals(json.getString("music", null))) using.add(f);
+    } catch (Exception e) {
+      // an unreadable level can't be using it
+    }
+  }
+  return using;
+}
+
+// Deletes a track from data/music. The player lets go of it first, as Windows will
+// not delete a file that is still open. Returns whether the file is gone.
+boolean deleteMusic(String name) {
+  if (name.equals(music.track)) music.unload();
+  File f = new File(dataPath(MUSIC_DIR + "/" + name));
+  return !f.exists() || f.delete();
+}
+
 // Editor panel for choosing the level's track: "None", every track in data/music,
-// then Import... (opens a file picker) and a preview button.
+// then Import... (opens a file picker) and a preview button. Each track row has an
+// x for deleting the file; it asks for a second click before it does.
 final float MP_W = 300, MP_ROW = 26, MP_PAD = 8;
 final int MP_MAX_ROWS = 10;  // tracks shown at once; the wheel scrolls the rest
 
 class MusicPanel {
   String[] tracks = new String[0];
   int scroll = 0;
+  int pendingDelete = -1;  // row whose x was clicked once and waits for the confirming click, or -1
 
   void refresh() {
+    pendingDelete = -1;
     tracks = musicTracks();
     scroll = constrain(scroll, 0, max(0, tracks.length + 1 - MP_MAX_ROWS));
   }
@@ -167,6 +195,22 @@ class MusicPanel {
     if (mx < x || mx >= x + MP_W) return -1;
     for (int s = 0; s < shownRows(); s++) {
       if (my >= rowY(s) && my < rowY(s) + MP_ROW) return s + scroll;
+    }
+    return -1;
+  }
+
+  // The delete x at the right end of a shown row (tracks only, not None)
+  final float DEL_W = 22;
+  float[] deleteRect(int shown) {
+    return new float[] { x + MP_W - 4 - DEL_W - 2, rowY(shown) + 2, DEL_W, MP_ROW - 4 };
+  }
+
+  // Row whose delete x is under the mouse, or -1
+  int deleteAt(float mx, float my) {
+    for (int s = 0; s < shownRows(); s++) {
+      if (s + scroll == 0) continue;
+      float[] r = deleteRect(s);
+      if (mx >= r[0] && mx < r[0] + r[2] && my >= r[1] && my < r[1] + r[3]) return s + scroll;
     }
     return -1;
   }
@@ -223,15 +267,29 @@ class MusicPanel {
       }
       fill(on ? color(255, 200, 60) : t == null ? color(160) : color(230));
       String label = t == null ? "None" : t;
-      // keep long names inside the panel
-      while (textWidth(label) > MP_W - 40 && label.length() > 4) label = label.substring(0, label.length() - 4) + "...";
+      // keep long names inside the panel, clear of the scroll hints and the delete x
+      while (textWidth(label) > MP_W - 70 && label.length() > 4) label = label.substring(0, label.length() - 4) + "...";
       text(label, x + MP_PAD + 6, ry + MP_ROW / 2 - 1);
+
+      // delete x: shown on the hovered track, and kept red while it waits for the second click
+      boolean pending = row == pendingDelete;
+      if (t != null && (row == hover || pending)) {
+        float[] r = deleteRect(s);
+        boolean overX = mouseX >= r[0] && mouseX < r[0] + r[2] && mouseY >= r[1] && mouseY < r[1] + r[3];
+        fill(pending ? color(220, 60, 60, overX ? 230 : 170) : overX ? color(220, 60, 60, 120) : color(255, 20));
+        rect(r[0], r[1], r[2], r[3], 4);
+        fill(pending || overX ? color(255) : color(200));
+        textAlign(CENTER, CENTER);
+        text(pending ? "?" : "x", r[0] + r[2] / 2, r[1] + r[3] / 2 - 1);
+        textAlign(LEFT, CENTER);
+      }
     }
-    // scroll hints when the list is longer than the panel
+    // scroll hints when the list is longer than the panel (left of the delete x)
     fill(150);
     textAlign(RIGHT, CENTER);
-    if (scroll > 0) text("^", x + MP_W - MP_PAD - 4, rowY(0) + MP_ROW / 2);
-    if (scroll + shownRows() < rowCount()) text("v", x + MP_W - MP_PAD - 4, rowY(shownRows() - 1) + MP_ROW / 2);
+    float hintX = x + MP_W - 4 - DEL_W - 8;
+    if (scroll > 0) text("^", hintX, rowY(0) + MP_ROW / 2);
+    if (scroll + shownRows() < rowCount()) text("v", hintX, rowY(shownRows() - 1) + MP_ROW / 2);
 
     int hb = buttonAt(mouseX, mouseY);
     String[] labels = { "Import...", previewing ? "Stop preview" : "Preview" };

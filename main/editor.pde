@@ -805,7 +805,35 @@ class Editor {
     flash("Imported " + name);
   }
 
+  // Deletes a track file once its x has been clicked twice in a row. The first click
+  // says what else would lose it, since other saved levels may use the same file.
+  void deleteTrackPressed(int row) {
+    String t = musicPanel.trackFor(row);
+    if (musicPanel.pendingDelete != row) {
+      musicPanel.pendingDelete = row;
+      ArrayList<String> others = levelsUsingTrack(t, file);
+      flash("Click again to delete " + t
+        + (others.isEmpty() ? "" : "  (also used by " + join(others.toArray(new String[0]), ", ") + ")"));
+      return;
+    }
+    boolean wasCurrent = t.equals(track);
+    if (wasCurrent) setTrack(null);  // the level goes silent; save to keep that
+    if (!deleteMusic(t)) {
+      musicPanel.pendingDelete = -1;
+      flash("Could not delete " + t);
+      return;
+    }
+    musicPanel.refresh();
+    flash("Deleted " + t + (wasCurrent ? " - this level now has no music" : ""));
+  }
+
   void musicPanelPressed() {
+    int del = musicPanel.deleteAt(mouseX, mouseY);
+    if (del >= 0) {
+      deleteTrackPressed(del);
+      return;
+    }
+    musicPanel.pendingDelete = -1;  // any other click cancels a pending delete
     int row = musicPanel.rowAt(mouseX, mouseY);
     if (row >= 0) {
       setTrack(musicPanel.trackFor(row));

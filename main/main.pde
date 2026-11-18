@@ -38,8 +38,9 @@ final float ISO_PITCH = radians(30);
 final float ISO_ZOOM = 0.7071;  // iso shows a bit more of the level, like before
 
 void setup() {
-  size(1000, 800, P3D);
+  size(1000, 800, P3D);  // the size it returns to when un-maximized
   smooth(8);
+  maximizeWindow();
   sphereDetail(24);
   keybinds = new Keybinds();
   minim = new Minim(this);
@@ -48,6 +49,25 @@ void setup() {
   level = new Level(levelFile);
   resetPlayer();
   lastMillis = millis();
+}
+
+// Opens the window maximized, and resizable so it can be restored to its size() size.
+// P3D draws into a JOGL (NEWT) window, which Processing's surface can't maximize, so
+// it is asked directly. Both calls need the window's lock, which the sketch's own
+// thread holds during setup() and every draw(), so making them from setup() deadlocks
+// against JOGL's window thread. A separate thread waits its turn between frames instead.
+void maximizeWindow() {
+  Object win = surface.getNative();
+  if (!(win instanceof com.jogamp.newt.opengl.GLWindow)) return;
+  final com.jogamp.newt.opengl.GLWindow w = (com.jogamp.newt.opengl.GLWindow) win;
+  Thread t = new Thread(new Runnable() {
+    public void run() {
+      surface.setResizable(true);
+      w.setMaximized(true, true);
+    }
+  }, "maximize-window");
+  t.setDaemon(true);
+  t.start();
 }
 
 // put the player back at the level spawn and snap the camera to them
