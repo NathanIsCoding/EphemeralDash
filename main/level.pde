@@ -12,7 +12,11 @@ class Level {
   float clock = 0;  // seconds since the current attempt started; drives the cannons
 
   Level(String file) {
-    JSONObject json = loadJSONObject("levels/" + file);
+    this(loadJSONObject("levels/" + file), file);
+  }
+
+  // From level data already in memory (the editor's play-test); file is only the fallback name
+  Level(JSONObject json, String file) {
     name = json.getString("name", file);
     music = json.getString("music", null);
     spawn = readVec(json.getJSONArray("spawn"));
@@ -94,6 +98,14 @@ class Level {
       if (o instanceof Cannon) ((Cannon) o).fire(t0, clock, bullets);
     }
     bullets.removeIf(b -> !b.alive);
+  }
+
+  // Runs the level on to time t, in small steps, without a player: used to start a
+  // play-test part-way through, so the cannons and their bullets in flight are
+  // exactly where they would be had the run started at the spawn.
+  void fastForward(float t) {
+    final float STEP = 1.0 / 60;
+    while (clock < t) update(min(STEP, t - clock));
   }
 
   // true if any bullet touches the ball centred on c with radius r

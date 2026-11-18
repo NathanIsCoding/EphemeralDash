@@ -18,7 +18,7 @@ final float MAX_PITCH = radians(89);  // stop just short of straight up or down
 final float TB_X = 12, TB_Y = 12;
 final float TB_BUTTON = 40, TB_GAP = 6, TB_SEP = 18, TB_PAD = 6;
 // "|" is a separator between groups
-final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "cannon", "|", "spawn", "goal", "|", "music", "view", "save", "help", "exit" };
+final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "cannon", "|", "spawn", "goal", "|", "play", "playhere", "music", "view", "save", "help", "exit" };
 final String[] HELP_LINES = {
   "Build [B]: click a block, then a handle to add",
   "Select [V]: drag between blocks to box-select, Shift adds",
@@ -44,6 +44,9 @@ final String[][] ICON_FILES = {
   { "save",      "save" },
   { "help",      "help" },
   { "music",     "music_note_add" },
+  { "play",      "play_circle" },
+  { "playhere",  "flag_circle" },
+  { "stop",      "stop_circle" },  // the play-test's Stop button
   { "exit",      "logout" },
 };
 final float ICON_DRAW = 24;  // pixels; matches the images, so they are not resampled
@@ -162,6 +165,11 @@ class Editor {
   // (or from how it was when opened). Comparing the output catches every kind of edit.
   boolean isDirty() {
     return !join(serialize(), "\n").equals(savedText);
+  }
+
+  // The level as it is now, saved or not, for a play-test
+  JSONObject levelJSON() {
+    return parseJSONObject(join(serialize(), "\n"));
   }
 
   // The level file's lines, in the normal level format
@@ -731,6 +739,40 @@ class Editor {
     musicPanel.y = TB_Y + toolbarHeight() + 8;
   }
 
+  // Hands over to the game to play this level as it is now, from the spawn or from
+  // `from`; Esc comes back here unchanged
+  void playTest(PVector from) {
+    cannonPanel.commit(targetCannons());  // a typed value that was not applied yet still counts
+    dragging = leftDragging = filling = shiftDown = false;
+    panLeft = panRight = panUp = panDown = rotLeft = rotRight = false;  // their key-ups go to the game
+    startTest(from);
+  }
+
+  // Play-test from on top of the selected block (the build tool's block, or the
+  // leftmost of a selection), with the music at the matching time
+  void playFromHere() {
+    ArrayList<Cell> picked = new ArrayList<Cell>(selection);
+    if (picked.isEmpty() && selected != null) picked.add(selected);
+    Cell start = null;
+    for (Cell c : picked) {
+      // leftmost; among those the highest, which is the one you stand on
+      if (start == null || c.x < start.x || (c.x == start.x && c.y > start.y)) start = c;
+    }
+    if (start == null) {
+      flash("Select a block to start from");
+      return;
+    }
+    if (grid.get(start.x, start.y + 1, start.z) != null) {
+      flash("The block to start from needs free space above it");
+      return;
+    }
+    if (start.x + 0.5 >= goal.x) {
+      flash("Start before the goal");
+      return;
+    }
+    playTest(new PVector(start.x + 0.5, start.y + 1, start.z + 0.5));
+  }
+
   void setTrack(String t) {
     boolean wasPreviewing = music.playing();
     track = t;
@@ -968,6 +1010,8 @@ class Editor {
     else if (id.equals("view")) toggleView();
     else if (id.equals("save")) save();
     else if (id.equals("music")) toggleMusicPanel();
+    else if (id.equals("play")) playTest(null);
+    else if (id.equals("playhere")) playFromHere();
     else if (id.equals("help")) {
       showHelp = !showHelp;
       if (showHelp) showMusic = false;  // they open in the same spot
@@ -1006,6 +1050,8 @@ class Editor {
     if (id.equals("save")) return "Save  [Enter]";
     if (id.equals("help")) return "Controls";
     if (id.equals("music")) return "Level music" + (track != null ? ": " + track : "");
+    if (id.equals("play")) return "Play-test from the spawn  [F5]  (Esc stops)";
+    if (id.equals("playhere")) return "Play-test from the selected block, music in sync  [Shift+F5]";
     if (id.equals("exit")) return "Exit  [Esc]";
     return "";
   }
@@ -1297,6 +1343,11 @@ class Editor {
     // typing a value: keys like 1-5, Delete and Enter must not reach the tools
     if (cannonPanel.editing >= 0) {
       cannonPanel.keyPressed(targetCannons());
+      return;
+    }
+    if (key == CODED && keyCode == java.awt.event.KeyEvent.VK_F5) {
+      if (shiftDown) playFromHere();
+      else playTest(null);
       return;
     }
     setKeys(key, true);

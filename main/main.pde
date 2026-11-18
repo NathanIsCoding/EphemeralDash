@@ -77,12 +77,17 @@ void draw() {
       state = DEAD;
       deathMillis = millis();
       music.stop();
-      deathMenu.selected = 0;  // "Retry"
+      deathMenu.open(testing);
     }
     else if (player.pos.x >= level.goal.x) {
       // crossing the goal's line counts, in any lane and either view
-      winMenu.open(levelFile);
-      state = WON;
+      if (testing) {
+        stopTest();
+        editor.flash("Reached the goal in " + formatTime(level.clock));
+      } else {
+        winMenu.open(levelFile);
+        state = WON;
+      }
     }
     cam.lerp(camTarget(), 1 - exp(-dt * 8));
   } else if (state == DEAD && millis() - deathMillis >= DEATH_DELAY) {
@@ -135,6 +140,68 @@ void draw() {
   if (state == WON) winMenu.display();
   if (state == DEAD) displayDeath();
   if (state == SETTINGS) settingsMenu.display();
+  if (testing) {
+    flush();  // so the world's outlines cannot show through the bar (see Editor.display)
+    drawTestBar();
+  }
+}
+
+// play-testing from the editor
+
+boolean testing = false;  // playing the editor's level; Esc / Stop goes back to the editor
+final float TEST_BTN_X = 12, TEST_BTN_Y = 12, TEST_BTN_W = 96, TEST_BTN_H = 34;
+
+PVector testStart;  // where the play-test starts, or null for the spawn
+
+// Plays the level as it is in the editor, unsaved changes included. from is the
+// player's starting point (feet, centred on its lane), or null for the spawn.
+void startTest(PVector from) {
+  level = new Level(editor.levelJSON(), levelFile);
+  testing = true;
+  testStart = from;
+  startAttempt();
+}
+
+void stopTest() {
+  testing = false;
+  music.stop();
+  state = EDITOR;
+}
+
+boolean overStopButton() {
+  return mouseX >= TEST_BTN_X && mouseX < TEST_BTN_X + TEST_BTN_W
+      && mouseY >= TEST_BTN_Y && mouseY < TEST_BTN_Y + TEST_BTN_H;
+}
+
+// m:ss.ss
+String formatTime(float s) {
+  int m = floor(s / 60);
+  return m + ":" + nf(s - m * 60, 2, 2);
+}
+
+// Stop button, then the attempt's time and the player's distance along the level.
+// The run speed is constant, so the time is also how far into the music this point is.
+void drawTestBar() {
+  boolean hover = overStopButton();
+  noStroke();
+  fill(0, 170);
+  rect(TEST_BTN_X - 4, TEST_BTN_Y - 4, 360, TEST_BTN_H + 8, 8);
+
+  fill(hover ? color(255, 80, 80, 90) : color(255, 30));
+  stroke(hover ? color(255, 80, 80) : color(255, 80));
+  strokeWeight(1);
+  rect(TEST_BTN_X, TEST_BTN_Y, TEST_BTN_W, TEST_BTN_H, 6);
+  noStroke();
+  editor.drawIcon("stop", TEST_BTN_X + 20, TEST_BTN_Y + TEST_BTN_H / 2);
+  fill(255);
+  textAlign(LEFT, CENTER);
+  textSize(16);
+  text("Stop", TEST_BTN_X + 36, TEST_BTN_Y + TEST_BTN_H / 2 - 1);
+
+  fill(255, 200, 60);
+  text(formatTime(level.clock), TEST_BTN_X + TEST_BTN_W + 16, TEST_BTN_Y + TEST_BTN_H / 2 - 1);
+  fill(170);
+  text("x " + nf(player.pos.x, 1, 1) + "   Esc to stop", TEST_BTN_X + TEST_BTN_W + 100, TEST_BTN_Y + TEST_BTN_H / 2 - 1);
 }
 
 // Frozen world behind the death menu and a countdown to the restart
@@ -153,7 +220,8 @@ void keyPressed() {
 
   if (key == ESC) {
     key = 0;  // stop Processing from closing the sketch
-    if (state == PLAYING) pauseGame();
+    if (testing) stopTest();  // straight back to the editor, no pause menu
+    else if (state == PLAYING) pauseGame();
     else if (state == PAUSED) resumeGame();
     else if (state == EDITOR) editor.escape();
     else if (state == LEVEL_SELECT) state = MAIN_MENU;
@@ -241,6 +309,8 @@ void chooseDeath(String choice) {
     startAttempt();
   } else if (choice.equals("Level Select")) {
     openLevelSelect(false);
+  } else if (choice.equals("Back to Editor")) {
+    stopTest();
   }
 }
 
@@ -274,11 +344,21 @@ void playLevel(String file) {
   startAttempt();
 }
 
-// A fresh try at the current level: player back at the spawn, music from the top
+// A fresh try at the current level: player back at the spawn, music from the top.
+// A play-test started part-way (testStart) restarts from that point instead, with the
+// level clock and the music moved on to when a run from the spawn would get there.
 void startAttempt() {
   resetPlayer();
+  float from = 0;
+  if (testing && testStart != null) {
+    player = new Player(testStart);
+    // the run speed is constant, so distance along x is time
+    from = max(0, (testStart.x - level.spawn.x) / player.runSpeed);
+    level.fastForward(from);
+    cam = camTarget();
+  }
   state = PLAYING;
-  music.start(level.music);
+  music.start(level.music, from);
 }
 
 void pauseGame() {
@@ -316,6 +396,7 @@ void mousePressed() {
     if (file != null) chooseLevel(file);
   }
   else if (mouseButton != LEFT) return;
+  else if (testing && overStopButton()) stopTest();  // works on the death screen too
   else if (state == MAIN_MENU) chooseMain(mainMenu.mousePressed());
   else if (state == PAUSED) choosePause(pauseMenu.mousePressed());
   else if (state == WON) chooseWin(winMenu.mousePressed());

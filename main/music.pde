@@ -52,6 +52,11 @@ class Music {
 
   // Plays track (a file in data/music) from the start, looping. null or a missing file means silence.
   void start(String file) {
+    start(file, 0);
+  }
+
+  // The same, from `seconds` into the track (wrapping round, as the track loops)
+  void start(String file, float seconds) {
     if (file == null || !new File(dataPath(MUSIC_DIR + "/" + file)).exists()) {
       stop();
       return;
@@ -68,6 +73,8 @@ class Music {
     }
     player.rewind();
     player.loop();
+    int ms = round(seconds * 1000);
+    if (ms > 0 && player.length() > 0) player.cue(ms % player.length());
   }
 
   void pause() {

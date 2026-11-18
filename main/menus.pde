@@ -105,6 +105,12 @@ class DeathMenu extends Menu {
     super("You Died", new String[] { "Retry", "Level Select" });
   }
 
+  // A play-test from the editor goes back there instead of to the level select
+  void open(boolean testing) {
+    items = new String[] { "Retry", testing ? "Back to Editor" : "Level Select" };
+    selected = 0;
+  }
+
   void display(int secondsLeft) {
     noStroke();
     fill(0, 150);
