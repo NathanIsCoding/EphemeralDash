@@ -6,10 +6,30 @@ import java.nio.file.StandardCopyOption;
 // live in data/music/. Minim streams them from disk, so even long tracks load quickly.
 //
 // The track starts from the beginning on every attempt, pauses with the game, stops
-// on death and when leaving to the menus.
+// on death, on reaching the goal (where the win sound plays) and when leaving to the
+// menus, which have their own track.
 
 final String MUSIC_DIR = "music";
+final String SFX_DIR = "sfx";
 final String[] MUSIC_EXTENSIONS = { ".mp3", ".wav" };
+
+// Menu music (in data/music) and the sound played on reaching the goal (in data/sfx)
+final String MENU_TRACK = "Silver Scrapes [NCS Release].mp3";
+final String WIN_SFX = "freesound_community-badass-victory-85546.mp3";
+
+// The menu track plays on the main menu, the level select and the settings opened
+// from the main menu. Elsewhere it is paused, and carries on where it was when the
+// menus come back. Called every frame.
+void updateMenuMusic() {
+  boolean inMenus = state == MAIN_MENU || state == LEVEL_SELECT
+      || (state == SETTINGS && settingsMenu.returnState == MAIN_MENU);
+  if (inMenus && !menuMusic.playing()) {
+    if (menuMusic.track == null) menuMusic.start(MENU_TRACK);
+    else menuMusic.resume();
+  } else if (!inMenus && menuMusic.playing()) {
+    menuMusic.pause();
+  }
+}
 
 Minim minim;  // made in setup()
 
@@ -32,6 +52,17 @@ class Music {
   AudioPlayer player;
   String track;  // file name of the loaded track, or null
   float volume = 1;  // 0..1
+  String dir;    // folder in data/ the tracks are in
+  boolean loop;  // false plays a track once, as for a sound effect
+
+  Music() {
+    this(MUSIC_DIR, true);
+  }
+
+  Music(String dir, boolean loop) {
+    this.dir = dir;
+    this.loop = loop;
+  }
 
   void setVolume(float v) {
     volume = v;
@@ -57,13 +88,13 @@ class Music {
 
   // The same, from `seconds` into the track (wrapping round, as the track loops)
   void start(String file, float seconds) {
-    if (file == null || !new File(dataPath(MUSIC_DIR + "/" + file)).exists()) {
+    if (file == null || !new File(dataPath(dir + "/" + file)).exists()) {
       stop();
       return;
     }
     if (!file.equals(track)) {
       unload();
-      player = minim.loadFile(MUSIC_DIR + "/" + file);
+      player = quietLoad(dir + "/" + file);
       if (player == null) {
         println("Could not load music: " + file);
         return;
@@ -72,9 +103,25 @@ class Music {
       applyVolume();
     }
     player.rewind();
-    player.loop();
+    if (loop) player.loop();
+    else player.play();
     int ms = round(seconds * 1000);
     if (ms > 0 && player.length() > 0) player.cue(ms % player.length());
+  }
+
+  // Minim's MP3 reader prints a "JavaSound Minim Error" for every ID3 tag it doesn't
+  // know (album art, original artist, ...), though the track plays fine. Its console
+  // output is dropped while the file is opened.
+  AudioPlayer quietLoad(String path) {
+    java.io.PrintStream out = System.out;
+    System.setOut(new java.io.PrintStream(new java.io.OutputStream() {
+      public void write(int b) {}
+    }));
+    try {
+      return minim.loadFile(path);
+    } finally {
+      System.setOut(out);
+    }
   }
 
   void pause() {
@@ -156,6 +203,7 @@ ArrayList<String> levelsUsingTrack(String track, String except) {
 // not delete a file that is still open. Returns whether the file is gone.
 boolean deleteMusic(String name) {
   if (name.equals(music.track)) music.unload();
+  if (name.equals(menuMusic.track)) menuMusic.unload();
   File f = new File(dataPath(MUSIC_DIR + "/" + name));
   return !f.exists() || f.delete();
 }

@@ -465,6 +465,13 @@ class Editor {
     if (t == TOOL_BUILD) selection.clear();  // build works on one cell at a time
   }
 
+  // Picking a block while the spawn or goal tool is active switches to the
+  // build tool, since those tools can't place blocks
+  void setBrush(int b) {
+    brush = b;
+    if (tool == TOOL_SPAWN || tool == TOOL_GOAL) setTool(TOOL_BUILD);
+  }
+
   // select tool
 
   void startSelect(float sx, float sy) {
@@ -1042,11 +1049,11 @@ class Editor {
     else if (id.equals("fill")) setTool(TOOL_FILL);
     else if (id.equals("spawn")) setTool(TOOL_SPAWN);
     else if (id.equals("goal")) setTool(TOOL_GOAL);
-    else if (id.equals("platform")) brush = BLOCK_PLATFORM;
-    else if (id.equals("cube")) brush = BLOCK_CUBE;
-    else if (id.equals("dot")) brush = BLOCK_DOT;
-    else if (id.equals("spike")) brush = BLOCK_SPIKE;
-    else if (id.equals("cannon")) brush = BLOCK_CANNON;
+    else if (id.equals("platform")) setBrush(BLOCK_PLATFORM);
+    else if (id.equals("cube")) setBrush(BLOCK_CUBE);
+    else if (id.equals("dot")) setBrush(BLOCK_DOT);
+    else if (id.equals("spike")) setBrush(BLOCK_SPIKE);
+    else if (id.equals("cannon")) setBrush(BLOCK_CANNON);
     else if (id.equals("view")) toggleView();
     else if (id.equals("save")) save();
     else if (id.equals("music")) toggleMusicPanel();
@@ -1090,8 +1097,8 @@ class Editor {
     if (id.equals("save")) return "Save  [Enter]";
     if (id.equals("help")) return "Controls";
     if (id.equals("music")) return "Level music" + (track != null ? ": " + track : "");
-    if (id.equals("play")) return "Play-test from the spawn  [F5]  (Esc stops)";
-    if (id.equals("playhere")) return "Play-test from the selected block, music in sync  [Shift+F5]";
+    if (id.equals("play")) return "Play-test from the spawn  (Esc stops)";
+    if (id.equals("playhere")) return "Play-test from the selected block, music in sync";
     if (id.equals("exit")) return "Exit  [Esc]";
     return "";
   }
@@ -1385,11 +1392,6 @@ class Editor {
       cannonPanel.keyPressed(targetCannons());
       return;
     }
-    if (key == CODED && keyCode == java.awt.event.KeyEvent.VK_F5) {
-      if (shiftDown) playFromHere();
-      else playTest(null);
-      return;
-    }
     setKeys(key, true);
     if (key == CODED && keyCode == SHIFT) shiftDown = true;
 
@@ -1400,11 +1402,11 @@ class Editor {
     if (k == 'p') setTool(TOOL_SPAWN);
     if (k == 'g') setTool(TOOL_GOAL);
 
-    if (key == '1') brush = BLOCK_PLATFORM;
-    if (key == '2') brush = BLOCK_CUBE;
-    if (key == '3') brush = BLOCK_DOT;
-    if (key == '4') brush = BLOCK_SPIKE;
-    if (key == '5') brush = BLOCK_CANNON;
+    if (key == '1') setBrush(BLOCK_PLATFORM);
+    if (key == '2') setBrush(BLOCK_CUBE);
+    if (key == '3') setBrush(BLOCK_DOT);
+    if (key == '4') setBrush(BLOCK_SPIKE);
+    if (key == '5') setBrush(BLOCK_CANNON);
     if (k == 't') turnCannons();
 
     if ((key == 'r' || key == 'R') && !viewKeyDown) {

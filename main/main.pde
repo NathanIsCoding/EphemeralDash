@@ -24,7 +24,9 @@ PauseMenu pauseMenu = new PauseMenu();
 MainMenu mainMenu = new MainMenu();
 LevelSelect levelSelect = new LevelSelect();
 WinMenu winMenu = new WinMenu();
-Music music;  // made in setup(), after Minim
+Music music;      // the level's track; made in setup(), after Minim
+Music menuMusic;  // the menus' track (see updateMenuMusic)
+Music winSfx;     // played once on reaching the goal
 DeathMenu deathMenu = new DeathMenu();
 SettingsMenu settingsMenu = new SettingsMenu();
 Keybinds keybinds;  // made in setup(): it needs DEFAULT_KEYS from settings.pde, which is set up after this tab's globals
@@ -45,6 +47,8 @@ void setup() {
   keybinds = new Keybinds();
   minim = new Minim(this);
   music = new Music();
+  menuMusic = new Music();
+  winSfx = new Music(SFX_DIR, false);
   loadSettings();  // keys and music volume
   level = new Level(levelFile);
   resetPlayer();
@@ -101,12 +105,15 @@ void draw() {
         stopTest();
         editor.flash("Reached the goal in " + formatTime(level.clock));
       } else {
+        music.stop();
+        winSfx.start(WIN_SFX);
         winMenu.open(levelFile);
         state = WON;
       }
     }
     cam.lerp(camTarget(), 1 - exp(-dt * 8));
   }
+  updateMenuMusic();
 
   background(20);
   // Orthographic, so the side view stays perfectly flat. With the default camera
@@ -367,6 +374,7 @@ void startAttempt() {
     cam = camTarget();
   }
   state = PLAYING;
+  winSfx.stop();  // "Next Level" straight after a win cuts the fanfare short
   music.start(level.music, from);
 }
 

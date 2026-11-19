@@ -29,7 +29,17 @@ void loadSettings() {
       println("Could not read " + SETTINGS_FILE + ", using defaults: " + e);
     }
   }
+  applyVolumes();
+}
+
+// How loud the menu music is next to the level music (0..1): it sits in the background
+final float MENU_MUSIC_LEVEL = 0.1;
+
+// The one volume setting covers the level music, the menu music and the win sound
+void applyVolumes() {
   music.setVolume(musicVolume);
+  menuMusic.setVolume(musicVolume * MENU_MUSIC_LEVEL);
+  winSfx.setVolume(musicVolume);
 }
 
 void saveSettings() {
@@ -41,7 +51,7 @@ void saveSettings() {
 
 void setMusicVolume(float v) {
   musicVolume = constrain(v, 0, 1);
-  music.setVolume(musicVolume);
+  applyVolumes();
 }
 
 class Keybinds {
