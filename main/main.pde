@@ -409,6 +409,10 @@ void mousePressed() {
     if (settingsMenu.mousePressed()) state = settingsMenu.returnState;
   }
   else if (state == LEVEL_SELECT && mouseButton == LEFT) {
+    if (levelSelect.overBack()) {
+      state = MAIN_MENU;  // same as Esc
+      return;
+    }
     String file = levelSelect.mousePressed();
     if (file != null) chooseLevel(file);
   }

@@ -145,7 +145,8 @@ String keyName(int code) {
 final int SR_VOLUME = 0;
 final int SR_FIRST_KEY = 1;
 final float SLIDER_W = 160;
-final float VOL_LABEL_GAP = 28, VOL_PCT_GAP = 16;  // label to bar, bar to percentage
+final float VOL_PCT_GAP = 16;  // bar to percentage
+final float ROW_PAD = 20;      // row text inset from the ends of its button
 final String VOL_LABEL = "Music Volume";
 
 class SettingsMenu {
@@ -185,15 +186,18 @@ class SettingsMenu {
     return -1;
   }
 
-  // The volume row (label, bar, percentage) is centred as a whole, since its bar
-  // makes it much wider on the right than the key rows
+  // Drawn in the main menu's style: a dark panel down the middle, with each row a
+  // button that fills with the accent colour when highlighted
+  float panelWidth() { return min(width - 32, 620); }
+  float rowWidth() { return panelWidth() - 80; }
+  float rowLeft() { return width / 2 - rowWidth() / 2; }
+  float rowRight() { return width / 2 + rowWidth() / 2; }
+
+  // The volume bar sits at the right end of its row, just left of the percentage
   float sliderX() {
     textSize(20);
-    float pctW = textWidth("100%");  // widest value, so the row does not shift as it changes
-    textSize(28);
-    float labelW = textWidth(VOL_LABEL);
-    float total = labelW + VOL_LABEL_GAP + SLIDER_W + VOL_PCT_GAP + pctW;
-    return width / 2 - total / 2 + labelW + VOL_LABEL_GAP;
+    float pctW = textWidth("100%");  // widest value, so the bar does not shift as it changes
+    return rowRight() - ROW_PAD - pctW - VOL_PCT_GAP - SLIDER_W;
   }
 
   boolean overSlider(float mx, float my) {
@@ -260,9 +264,12 @@ class SettingsMenu {
   }
 
   void display() {
+    // whatever is behind (the world, or nothing from the main menu) is dimmed either side of the panel
     noStroke();
-    fill(0, 150);
+    fill(0, MENU_DIM);
     rect(0, 0, width, height);
+    fill(MM_PANEL);
+    rect(width / 2 - panelWidth() / 2, 0, panelWidth(), height);
 
     if (!listening && !dragging && (mouseX != pmouseX || mouseY != pmouseY)) {
       int hover = rowAt(mouseY);
@@ -271,42 +278,43 @@ class SettingsMenu {
 
     textAlign(CENTER, CENTER);
     fill(255);
-    textSize(48);
-    text("Settings", width / 2, height * 0.12);
+    textSize(56);
+    text("SETTINGS", width / 2, height * 0.12);
 
-    textSize(20);
-    fill(150);
-    text("Audio", width / 2, headingY(SR_VOLUME));
-    text("Keybinds", width / 2, headingY(SR_FIRST_KEY));
+    textAlign(LEFT, CENTER);
+    textSize(18);
+    fill(MM_MUTED);
+    text("AUDIO", rowLeft(), headingY(SR_VOLUME));
+    text("KEYBINDS", rowLeft(), headingY(SR_FIRST_KEY));
 
-    textSize(28);
+    float bh = ROW_H - 8;  // button height, leaving a gap between rows
     for (int i = 0; i < rowCount(); i++) {
       float y = rowY(i);
       boolean on = i == selected;
-      color c = on ? color(255, 200, 60) : color(200);
-      fill(c);
+      drawMenuBar(rowLeft(), y - bh / 2, rowWidth(), bh, on);
+      fill(menuTextColor(on));
+      textSize(22);
 
       if (i == SR_VOLUME) {
-        float sx = sliderX();  // sets textSize(28) again for the label
-        textAlign(RIGHT, CENTER);
-        text(VOL_LABEL, sx - VOL_LABEL_GAP, y);
+        textAlign(LEFT, CENTER);
+        text(VOL_LABEL.toUpperCase(), rowLeft() + ROW_PAD, y - 2);
         drawVolumeSlider(y, on);
       } else if (isKeyRow(i)) {
         int a = i - SR_FIRST_KEY;
-        textAlign(RIGHT, CENTER);
-        text(ACTION_NAMES[a], width / 2 - 20, y);
         textAlign(LEFT, CENTER);
+        text(ACTION_NAMES[a].toUpperCase(), rowLeft() + ROW_PAD, y - 2);
+        textAlign(RIGHT, CENTER);
         String k = on && listening ? "Press a key..." : keybinds.nameOf(a);
-        text("[ " + k + " ]", width / 2 + 20, y);
+        text("[ " + k + " ]", rowRight() - ROW_PAD, y - 2);
       } else {
         textAlign(CENTER, CENTER);
-        text(i == resetRow() ? "Reset Keybinds" : "Back", width / 2, y);
+        text(i == resetRow() ? "RESET KEYBINDS" : "BACK", width / 2, y - 2);
       }
     }
 
     textAlign(CENTER, CENTER);
     textSize(16);
-    fill(150);
+    fill(MM_MUTED);
     String hint;
     if (listening) hint = "Press the new key, or Esc to cancel";
     else if (selected == SR_VOLUME) hint = "A/D or Left/Right to adjust, or drag the slider. Esc to go back";
@@ -314,21 +322,21 @@ class SettingsMenu {
     text(hint, width / 2, height * 0.9);
   }
 
+  // On the highlighted (accent) row the slider is drawn dark; otherwise its filled part is the accent
   void drawVolumeSlider(float y, boolean on) {
     float x0 = sliderX(), kx = x0 + musicVolume * SLIDER_W;
     strokeWeight(6);
-    stroke(255, 50);
+    stroke(on ? color(MM_TEXT_ON, 60) : color(255, 50));
     line(x0, y, x0 + SLIDER_W, y);
-    stroke(on ? color(255, 200, 60) : color(200));
+    stroke(on ? MM_TEXT_ON : MM_ACCENT);
     if (musicVolume > 0) line(x0, y, kx, y);
     noStroke();
-    fill(on ? color(255, 200, 60) : color(220));
+    fill(on ? MM_TEXT_ON : MM_TEXT);
     circle(kx, y, dragging ? 22 : 18);
 
     textAlign(LEFT, CENTER);
     textSize(20);
-    fill(on ? color(255, 200, 60) : color(200));
+    fill(menuTextColor(on));
     text(round(musicVolume * 100) + "%", x0 + SLIDER_W + VOL_PCT_GAP, y - 2);
-    textSize(28);
   }
 }
