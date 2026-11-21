@@ -18,7 +18,7 @@ final float MAX_PITCH = radians(89);  // stop just short of straight up or down
 final float TB_X = 12, TB_Y = 12;
 final float TB_BUTTON = 40, TB_GAP = 6, TB_SEP = 18, TB_PAD = 6;
 // "|" is a separator between groups
-final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "cannon", "|", "spawn", "goal", "|", "play", "playhere", "music", "view", "save", "help", "exit" };
+final String[] TOOLS = { "build", "select", "fill", "|", "platform", "cube", "dot", "spike", "cannon", "|", "spawn", "goal", "|", "play", "playhere", "music", "view", "resetview", "resetzoom", "resetpos", "save", "help", "exit" };
 final String[] HELP_LINES = {
   "Build [B]: click a block, then a handle to add",
   "Select [V]: drag between blocks to box-select, Shift adds",
@@ -27,9 +27,12 @@ final String[] HELP_LINES = {
   "T: turn the selected cannon(s) a quarter turn",
   "Select cannon(s) to set their timing in the bottom-left panel",
   "Right click / Delete: remove (the whole selection if any)",
+  "Timeline (bottom): click / drag to jump there, play previews from the view",
+  "Space: play / pause the song preview",
+  "  >> next to play: the view follows the preview along the level",
   "WASD / right drag: pan",
-  "Wheel: zoom",
-  "Q/E / middle drag: rotate",
+  "Wheel: zoom, Z: reset the zoom, H: back to the spawn",
+  "Q/E / middle drag: rotate, C: reset the angle",
 };
 
 // Toolbar icon images in data/icons/ (Material Symbols, 24px), keyed by icon name.
@@ -41,6 +44,9 @@ final String[][] ICON_FILES = {
   { "fill",      "grid_4x4" },
   { "view_iso",  "deployed_code" },
   { "view_side", "square" },
+  { "resetview", "reset_shutter_speed" },
+  { "resetzoom", "reset_focus" },
+  { "resetpos",  "person_pin_circle" },
   { "save",      "save" },
   { "help",      "help" },
   { "music",     "music_note_add" },
@@ -58,6 +64,7 @@ final String[] EXIT_CHOICES = { "save", "discard", "cancel" };
 final String[] EXIT_LABELS = { "Save & Exit", "Discard", "Cancel" };
 final float DLG_BUTTON_W = 124, DLG_BUTTON_H = 36, DLG_GAP = 12;
 final int MAX_FILL = 100;  // cells per side of one fill, so a slip of the mouse cannot place thousands
+final float SCAN_MIN_WIDTH = 6;  // pixels: the preview's scan band never gets thinner than this
 final float EXTRUDE_COS = 0.9;  // how closely a drag must follow a face normal on screen to extrude from it
 
 class Editor {
@@ -94,7 +101,7 @@ class Editor {
   boolean dragging, dragMoved;
   int dragButton;
   float dragStartX, dragStartY, lastDragX, lastDragY;
-  boolean panLeft, panRight, panUp, panDown, rotLeft, rotRight, viewKeyDown;
+  boolean panLeft, panRight, panUp, panDown, rotLeft, rotRight, viewKeyDown, spaceDown;
 
   CannonPanel cannonPanel = new CannonPanel();
   String savedText;            // serialize() output as of the last save (or when opened), for isDirty()
@@ -105,6 +112,7 @@ class Editor {
   boolean showMusic = false;
   String track;  // the level's music file in data/music, or null
   MusicPanel musicPanel = new MusicPanel();
+  Timeline timeline = new Timeline();
 
   HashMap<String, PImage> icons = new HashMap<String, PImage>();
 
@@ -703,6 +711,12 @@ class Editor {
   // along the view direction onto the block at the screen centre: the picture does
   // not move (the view is orthographic), but the turn now pivots on what you are looking at.
   void toggleView() {
+    pivotOnCentre();
+    isIso = !isIso;
+  }
+
+  // Slides cam along the view direction onto the block at the screen centre, if any
+  void pivotOnCentre() {
     PVector[] r = mouseRay(width / 2, height / 2);
     float best = Float.MAX_VALUE;
     for (Cell c : grid.cells.values()) {
@@ -710,7 +724,45 @@ class Editor {
       if (s >= 0 && s < best) best = s;
     }
     if (best < Float.MAX_VALUE) cam = PVector.add(r[0], PVector.mult(r[1], best));
-    isIso = !isIso;
+  }
+
+  // Back to the starting iso angle, turning about what is at the centre of the screen
+  // (as toggleView does), so the view stays on the same part of the level. The zoom is kept.
+  void resetView() {
+    pivotOnCentre();
+    yaw = ISO_YAW;
+    pitch = ISO_PITCH;
+    isIso = true;
+  }
+
+  // Song time and level x. The run speed is constant, so seconds into the song are
+  // distance from the spawn (the same mapping startAttempt uses for "play from here").
+  float timeAt(float x) {
+    return (x - spawn.x) / RUN_SPEED;
+  }
+
+  float xAt(float t) {
+    return spawn.x + t * RUN_SPEED;
+  }
+
+  // World x seen at screen x sx, at the middle of the screen's height: where the
+  // view ray through that pixel crosses the camera point's lane (the z = cam.z plane).
+  // In side view the ray runs along z, so any point on it will do.
+  float visibleX(float sx) {
+    OrthoView v = view();
+    PVector p = v.fromScreen(sx, height / 2), d = v.eye();
+    if (abs(d.z) > 0.05) p.add(PVector.mult(d, (cam.z - p.z) / d.z));
+    return p.x;
+  }
+
+  // the song time at the centre of the screen
+  float centreTime() {
+    return timeAt(visibleX(width / 2));
+  }
+
+  // Slides the view along the level so time t is at the centre of the screen
+  void centreOnTime(float t) {
+    cam.x += xAt(t) - visibleX(width / 2);
   }
 
   // update / draw
@@ -729,6 +781,8 @@ class Editor {
 
     float target = isIso ? 1 : 0;
     t += (target - t) * min(1, dt * 15);
+
+    timeline.update(this, dt);  // after the view settles, so following uses this frame's view
 
     // a track picked in the Import... file dialog (which reports on its own thread)
     File picked = pickedMusicFile;
@@ -893,6 +947,7 @@ class Editor {
     // screen-space overlays
     noLights();
     hint(DISABLE_DEPTH_TEST);
+    if (timeline.showBand(this)) drawScanBand(xAt(timeline.bandTime()), v);
     drawSelection(v);
     if (tool == TOOL_BUILD && selected != null) drawOutline(selected, v);
     drawMarker(spawn, SPAWN_COLOR, v);
@@ -911,6 +966,24 @@ class Editor {
       flush();
       drawExitDialog();
     }
+  }
+
+  // While the song is previewed: a see-through band, straight up and down the screen,
+  // where the player would be at that moment of the song. It is placed on the middle
+  // lane and is as wide as a block there. Call in screen space.
+  void drawScanBand(float x, OrthoView v) {
+    int z0 = floor(spawn.z), z1 = z0;
+    for (Cell c : grid.cells.values()) {
+      z0 = min(z0, c.z);
+      z1 = max(z1, c.z);
+    }
+    float z = (z0 + z1 + 1) / 2.0;
+    // screen x does not depend on height, so any y will do
+    float a = v.toScreen(new PVector(x - 0.5, 0, z)).x, b = v.toScreen(new PVector(x + 0.5, 0, z)).x;
+    float w = max(SCAN_MIN_WIDTH, abs(b - a));
+    noStroke();
+    fill(255, 200, 60, 45);
+    rect((a + b) / 2 - w / 2, 0, w, height);
   }
 
   // A translucent preview of a brush cell. Call in world space with the depth mask off.
@@ -1027,6 +1100,7 @@ class Editor {
   // true over the toolbar, help or cannon panel, where clicks should not reach the level
   boolean overUI(float mx, float my) {
     if (inRect(mx, my, TB_X, TB_Y, toolbarWidth(), toolbarHeight())) return true;
+    if (timeline.over(mx, my)) return true;
     if (cannonPanel.over(mx, my) && !targetCannons().isEmpty()) return true;
     if (showMusic) {
       placeMusicPanel();
@@ -1055,6 +1129,9 @@ class Editor {
     else if (id.equals("spike")) setBrush(BLOCK_SPIKE);
     else if (id.equals("cannon")) setBrush(BLOCK_CANNON);
     else if (id.equals("view")) toggleView();
+    else if (id.equals("resetview")) resetView();
+    else if (id.equals("resetzoom")) zoom = 1;
+    else if (id.equals("resetpos")) cam = spawn.copy();
     else if (id.equals("save")) save();
     else if (id.equals("music")) toggleMusicPanel();
     else if (id.equals("play")) playTest(null);
@@ -1094,6 +1171,9 @@ class Editor {
     if (id.equals("spike")) return "Spike brush  [4]";
     if (id.equals("cannon")) return "Cannon brush  [5]  (T turns it)";
     if (id.equals("view")) return (isIso ? "Switch to side view" : "Switch to iso view") + "  [R]";
+    if (id.equals("resetview")) return "Reset the camera angle  [C]";
+    if (id.equals("resetzoom")) return "Reset the zoom  [Z]";
+    if (id.equals("resetpos")) return "Back to the spawn  [H]";
     if (id.equals("save")) return "Save  [Enter]";
     if (id.equals("help")) return "Controls";
     if (id.equals("music")) return "Level music" + (track != null ? ": " + track : "");
@@ -1107,6 +1187,8 @@ class Editor {
     float[] xs = toolXs();
     float by = TB_Y + TB_PAD;
     int hoverTool = toolAt(mouseX, mouseY);
+
+    timeline.display(this);
 
     // bar background
     noStroke();
@@ -1285,6 +1367,11 @@ class Editor {
       }
     }
 
+    if (timeline.over(mouseX, mouseY)) {
+      if (mouseButton == LEFT) timeline.pressed(this);
+      return;
+    }
+
     // the toolbar and help panel swallow clicks so they never edit the level behind them
     if (overUI(mouseX, mouseY)) {
       int t = toolAt(mouseX, mouseY);
@@ -1340,6 +1427,10 @@ class Editor {
       cannonPanel.mouseDragged(targetCannons());
       return;
     }
+    if (timeline.scrubbing) {
+      timeline.scrubTo(this, mouseX);
+      return;
+    }
     if (leftDragging) {
       if (tool == TOOL_SELECT) dragSelect(mouseX, mouseY);
       else if (filling) dragFill(mouseX, mouseY);
@@ -1359,6 +1450,10 @@ class Editor {
   void mouseReleased() {
     if (cannonPanel.dragging >= 0 && mouseButton == LEFT) {
       cannonPanel.dragging = -1;
+      return;
+    }
+    if (timeline.scrubbing && mouseButton == LEFT) {
+      timeline.released(this);
       return;
     }
     if (leftDragging && mouseButton == LEFT) {
@@ -1382,6 +1477,7 @@ class Editor {
         return;
       }
     }
+    if (timeline.over(mouseX, mouseY)) return;
     zoomAt(pow(1.1, -count), mouseX, mouseY);
   }
 
@@ -1413,6 +1509,13 @@ class Editor {
       viewKeyDown = true;
       toggleView();
     }
+    if (k == 'c') resetView();
+    if (k == 'z') zoom = 1;  // the screen centre stays put, as cam is the point there
+    if (k == 'h') cam = spawn.copy();
+    if (key == ' ' && !spaceDown) {  // ignore key repeat, which would flick it on and off
+      spaceDown = true;
+      timeline.togglePlay(this);
+    }
     if (key == DELETE || key == BACKSPACE) {
       if (!selection.isEmpty()) removeSelection();
       else if (selected != null) removeCell(selected);
@@ -1424,6 +1527,7 @@ class Editor {
     setKeys(key, false);
     if (key == CODED && keyCode == SHIFT) shiftDown = false;
     if (key == 'r' || key == 'R') viewKeyDown = false;
+    if (key == ' ') spaceDown = false;
   }
 
   void setKeys(char k, boolean down) {

@@ -1,3 +1,7 @@
+// Constant forward speed, world units per second. The editor's timeline relies on it
+// being constant: distance from the spawn is time into the song.
+final float RUN_SPEED = 10;
+
 class Player extends GameObject {
   // pos = center of the bottom face (x, z centered, y = feet)
   PVector velocity;
@@ -8,7 +12,7 @@ class Player extends GameObject {
   final float SKIN = 0.0001;
 
   boolean alive = true;
-  float runSpeed = 10;  // constant forward (+x) speed, world units per second
+  float runSpeed = RUN_SPEED;  // constant forward (+x) speed, world units per second
   float laneSpeed = 1 / 0.08;  // lane change speed: one lane in 0.08 s (0.10s was previous going to test this new speed)
   float gravity = 35;  // world units per second squared
   float jumpHeight = 2.2;  // world units (peak above take-off)

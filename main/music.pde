@@ -32,6 +32,7 @@ void updateMenuMusic() {
 }
 
 Minim minim;  // made in setup()
+final Object quietLock = new Object();  // see Music.quietLoad
 
 boolean isMusicFile(String name) {
   String n = name.toLowerCase();
@@ -112,15 +113,19 @@ class Music {
   // Minim's MP3 reader prints a "JavaSound Minim Error" for every ID3 tag it doesn't
   // know (album art, original artist, ...), though the track plays fine. Its console
   // output is dropped while the file is opened.
+  // The lock stops this and the timeline's reader thread (quietStream) swapping
+  // System.out at the same time, which could leave it switched off.
   AudioPlayer quietLoad(String path) {
-    java.io.PrintStream out = System.out;
-    System.setOut(new java.io.PrintStream(new java.io.OutputStream() {
-      public void write(int b) {}
-    }));
-    try {
-      return minim.loadFile(path);
-    } finally {
-      System.setOut(out);
+    synchronized (quietLock) {
+      java.io.PrintStream out = System.out;
+      System.setOut(new java.io.PrintStream(new java.io.OutputStream() {
+        public void write(int b) {}
+      }));
+      try {
+        return minim.loadFile(path);
+      } finally {
+        System.setOut(out);
+      }
     }
   }
 
@@ -204,6 +209,7 @@ ArrayList<String> levelsUsingTrack(String track, String except) {
 boolean deleteMusic(String name) {
   if (name.equals(music.track)) music.unload();
   if (name.equals(menuMusic.track)) menuMusic.unload();
+  songEnvelopes.remove(name);  // a new file imported under this name gets read afresh
   File f = new File(dataPath(MUSIC_DIR + "/" + name));
   return !f.exists() || f.delete();
 }

@@ -1,4 +1,4 @@
-// Editor window for the timing of the targeted cannons, shown in the bottom-left while
+// Editor window for the timing of the targeted cannons, shown in the bottom-left (above the timeline) while
 // any are selected. Each row has a slider and a box you can click and type a value into:
 //   Interval: seconds between shots
 //   Delay:    the offset, so cannons with the same interval can fire out of step
@@ -23,7 +23,7 @@ class CannonPanel {
 
   float x() { return TB_X; }
   float h() { return CP_PAD * 2 + CP_TITLE_H + CP_LABELS.length * CP_ROW; }
-  float y() { return height - TB_Y - h(); }
+  float y() { return height - TB_Y - TL_H - TL_GAP - h(); }  // above the timeline
   float rowMid(int r) { return y() + CP_PAD + CP_TITLE_H + r * CP_ROW + CP_ROW / 2; }
   float sliderX() { return x() + CP_PAD + CP_LABEL_W; }
   float boxX() { return sliderX() + CP_SLIDER_W + 16; }
